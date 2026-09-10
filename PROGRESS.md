@@ -9,47 +9,63 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P4 (gold set) — IN PROGRESS
-Last completed milestone: P3 (normalizer), gate passed.
-Next milestone: P4 (gold set). **No spec file exists yet** — write
-`specs/gold.md` first, then build it. Gate (`04` §1): ~50 hand-labelled
-URLs, stratified by module, committed as `data/gold/urls.jsonl`.
-Authority: `03` §6 (L3/L4), `01` §6 (why it must exist at all — there is no
-URL ground truth in the dataset, so if we don't make it, it doesn't exist).
+Phase: P5 (module baseline) — NOT STARTED
+Last completed milestone: P4 (gold set), gate passed.
+Next milestone: P5. **No spec file exists yet** — write `specs/classify.md`
+first, then implement. Gate (`04` §1): per-module stratified accuracy
+reported for a text-only classifier over `RETAILER_DESC` + `BRAND`, no URL.
+Authority: `03` §4 stage `[5]`, `03` §6 L1.
 
-**Hard rule for P4, stated here because it is the phase's whole point:**
-a fabricated or guessed URL is worse than a missing one. It would silently
-miscalibrate P9 precision@1 and P10's calibration curve with no error
-anywhere — exactly the latent-failure class `05` §5 exists to name. Every
-entry must be genuinely verified, and unverified rows must be absent rather
-than filled in optimistically.
+Two things `03` §4 stage 5 is explicit about and that shape the phase:
+`MODULE` is the **only** stage with real measurable ground truth (412/412
+labelled in `dev`), and overall accuracy is misleading because the top 4
+modules are 77% of `dev` — report **per-module stratified** accuracy or the
+23-module tail stays invisible.
+
+## Carried-forward work, explicitly not done
+
+- **P4 is partial by design: 6 of 50 sampled rows labelled** (5 `correct`,
+  1 `ambiguous`). The other 44 are unlabelled and resumable directly from
+  the frozen sample at `data/gold/sample.txt`. Do **not** fill them in
+  without actually opening and inspecting each page — `specs/gold.md`
+  explains why a fabricated URL is worse than a missing one, and P9/P10 both
+  fit against this file.
 
 ## Verified state (re-check on resume, don't trust blindly)
 
-Last `make check`: PASS as of the P3 milestone commit. `make` is absent on
+Last `make check`: PASS as of the P4 milestone commit. `make` is absent on
 this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (232 passed)
-Last milestone commit: 7b31f59 "P3 normalizer: RawRow -> ProductQuery,
-93-test suite (specs/normalize.md)"
+  uv run pytest                          -> EXIT 0  (260 passed)
+Last milestone commit: 8ca028f "P4 gold set: frozen stratified sample +
+6 hand-verified labels"
 
 ## Do NOT re-do
 
-- P0, P1, P2, P3: done, gates verified by execution, committed.
-- `data/raw/` holds the workbook and is read-only (`04` §12). Tests that
-  need a mutated workbook copy to `tmp_path` first.
-- `config/retailers.yaml` — all 50 entries hand-reviewed. Do not regenerate
-  from a regex; it fails on 21 of 50, one silently.
-- `config/normalize.yaml` — `free` and `extra` are deliberately NOT junk
-  tokens, and `multiplier_claim_words` deliberately exists. Both are
-  measured guards, not stylistic choices.
-- Decided, logged contract points — do not "fix" any of these:
-  `CandidateEvidence.jsonld_product`/`.og` are `dict[str, Any]`;
-  `barcode_valid` is a function, not a `RawRow` field; `DescTokens` and
-  `CanonicalEntity` carry BOTH `size_ml_equiv` and `size_g_equiv`, never
-  interconverted.
+- P0–P4: done, gates verified by execution, committed.
+- **Row identity is `row_uid` (`"dev:0"`), never `NAN_KEY`/`ITEM_CODE`.**
+  `01` §14: all three columns carry the same rounding corruption. Never key
+  an artifact, a cache entry, a registry member or a gold label on
+  `NAN_KEY`. This bug has already been introduced twice (the loader, then
+  the P4 sampler) and caught twice by tests.
+- **There is no dev/qa overlap.** All 40 shared `ITEM_CODE`s and all 23
+  shared `NAN_KEY`s are rounding artifacts. Do not resurrect the "40
+  overlapping rows" framing; P6 measures a content fingerprint instead.
+- **The fingerprint is a BLOCKING key, not a match key.** Measured: shared
+  fingerprints include genuinely different products (Aquafresh Extra Care
+  vs Aquafresh Intense Clean, both 500ml). Tier-1 similarity inside the
+  block is what discriminates, and P6 reports block hit rate *and*
+  within-block precision for exactly this reason.
+- `config/retailers.yaml` (50 hand-reviewed entries) and
+  `config/normalize.yaml` (`free`/`extra` deliberately not junk;
+  `multiplier_claim_words` deliberately present) are measured artifacts, not
+  drafts. Don't regenerate either from a pattern.
 - `pandas-stubs`/`types-openpyxl`/`types-PyYAML` are deliberate; they caught
-  two real loader defects. Do not swap them for `ignore_missing_imports`.
-- Doc versions currently in force: `01` v1.3, `03` v0.6, `04` v0.7, `05` v0.2.
+  two real loader defects. Don't swap them for `ignore_missing_imports`.
+- Contract points decided and logged — don't "fix" any of them:
+  `CandidateEvidence.jsonld_product`/`.og` are `dict[str, Any]`;
+  `barcode_valid` is a function, not a field; `DescTokens`/`CanonicalEntity`
+  carry both `size_ml_equiv` and `size_g_equiv`, never interconverted.
+- Doc versions in force: `01` v1.4, `03` v0.7, `04` v0.7, `05` v0.2.
