@@ -438,13 +438,86 @@ does tighten it to `object` later, a test fails rather than a type-checker
 run somewhere else going quiet.
 **Status:** standing
 
+## 2026-09-10 — Real type stubs over `ignore_missing_imports`, after they caught two live defects
+**Decision:** `pandas-stubs`, `types-openpyxl` and `types-PyYAML` added to the
+`dev` dependency group. `[[tool.mypy.overrides]]`'s `ignore_missing_imports`
+list stays limited to `extruct.*`/`trafilatura.*`, which genuinely ship no
+stubs.
+**Why:** `specs/scaffold.md`'s override table says to add an entry "only when
+mypy actually reports the import as untyped" — which it did, for `openpyxl`,
+`pandas` and `yaml`, the moment P2's loader imported them. Two remedies were
+available and they are not equivalent, so this was tested rather than assumed.
+With real stubs installed, `mypy --strict` immediately reported two genuine
+defects in freshly written loader code, both of which `ignore_missing_imports`
+would have silently accepted: (1) `cell: Cell = row[index]` is unsound —
+`Worksheet.iter_rows` yields `Cell | MergedCell`; (2) `int(cell.value)` was
+being applied to openpyxl's full numeric-cell union, which includes `date`,
+`time`, `timedelta` and `Decimal` — on a `date` that either raises something
+unhelpful or truncates, on exactly the column (`EXTERNAL_CODE`) whose silent
+type coercion is already the canonical latent-failure instance in this project
+(`05` §5). The fix now narrows explicitly with `isinstance(value, int | float)`
+and raises `DatasetSchemaError` otherwise. Suppression would have left a real
+bug in the highest-risk column in the dataset. `pandas-stubs` was the one with
+a plausible downside (it is strict enough to generate noise on ordinary
+DataFrame use); measured, it produced zero false positives against this
+codebase, so that concern did not materialize.
+**Affects:** `pyproject.toml` `[dependency-groups] dev`. `uv.lock`.
+`src/nimo/loader/dataset.py` (`_read_external_codes` narrowing + new
+`DatasetSchemaError` branch). `specs/scaffold.md`'s override-table note stands
+unchanged and was followed, not overridden.
+**Status:** standing
+
+## 2026-09-10 — `barcode_valid` is a derived function, not a `RawRow` field
+**Decision:** `01` §10 criterion 1 asks the loader to "emit `barcode_valid:
+bool` ... per row". Implemented as a pure function,
+`nimo.loader.fields.barcode_valid(barcode) -> bool`, not as a fifteenth
+`RawRow` field.
+**Why:** `03` §3 is the contract authority and does not list it; adding a
+field would have put `contracts.py` out of field-for-field agreement with
+`03` §3, which `specs/contracts.md`'s DoD requires and P1 now enforces with a
+test. More substantively, `barcode_valid` is a total function of `barcode`,
+which the row already carries — storing it duplicates derived state that can
+drift out of sync with its source, the same class of problem as any cached
+denormalization. Note `01` §10 criterion 1's naming is already known-loose
+against `03` §3 (it calls the corruption flag `barcode_corrupt_rounded`;
+the contract calls it `barcode_corrupt`), so treating that criterion as a
+statement of *intent* rather than a literal field list is consistent with how
+the rest of it is already read. `specs/loader.md` §2 supports this reading
+too — it introduces the rule with "Validity, **separately**".
+**Affects:** `src/nimo/loader/fields.py`. No contract change, so `03` §3 and
+`contracts.py` are untouched. `01` §10 criterion 1's intent is satisfied.
+**Status:** standing
+
+## 2026-09-10 — Only 18 of `dev`'s 35 intact barcodes are usable; `01` §3 corrected
+**Decision:** `01` §3 consequence 2 amended. It previously said to tune
+barcode matching "on the 35 intact rows only". The real usable count is
+**18** — the other 17 are not GTINs.
+**Why:** measured during P2 against the loaded rows, not estimated. The 35
+`dev` rows that survive the `0.00E+00` rounding defect have length
+distribution `{6: 4, 7: 13, 8: 18}`; only the 18 eight-digit values are valid
+GTIN lengths (8/12/13/14). Values like `266611` and `1071580` cannot
+participate in a GTIN hard rule, Tier-0 blocking, or an S1/S2 barcode search
+strategy, so counting them as "intact" overstates the tunable sample by
+almost half — on a signal `01` §3 itself calls "the single strongest identity
+signal available". `qa`'s distribution is `{8: 1, 13: 411}`, i.e. 412/412
+usable, which sharpens the dev/qa asymmetry `01` §3 already warns about
+rather than contradicting it. Whether the 17 short values are a second
+corruption mode (leading zeros dropped by the same numeric cell format) or
+genuinely short internal codes is not determinable from the file alone;
+recorded as unresolved and folded into Q1 rather than guessed.
+**Affects:** `01-dataset-contract.md` §3 consequence 2 (rewritten), version
+bumped to 1.3. Q1 in the open-questions table gains the short-value question.
+Relevant later to P7 (S1/S2 strategy coverage on dev) and P9 (the GTIN hard
+rule's effective sample size).
+**Status:** standing
+
 ---
 
 # Open questions — resolve with organizers
 
 | # | Question | Blocking? | Status |
 |---|---|---|---|
-| Q1 | `dev.EXTERNAL_CODE` is rounded to 3 sig figs in 377/412 rows. Can a corrected sheet be provided? | High — kills barcode matching on dev | open |
+| Q1 | `dev.EXTERNAL_CODE` is rounded to 3 sig figs in 377/412 rows. Can a corrected sheet be provided? Separately: of the 35 rows that survive rounding, 17 are only 6–7 digits (e.g. `266611`, `1071580`) and are not valid GTIN lengths — are these a second corruption mode (dropped leading zeros) or genuinely short internal codes? Usable dev barcodes are 18, not 35. | High — kills barcode matching on dev | open |
 | Q2 | Is the expected `PRODUCT_URL` submission value a real URL, or the page title? `sample_output` contains titles. | High — wrong format = zero score | open |
 | Q3 | No URL ground truth exists in `dev`. How is URL selection (stage 4) scored? | High — cannot optimize what we cannot measure | open |
 | Q4 | `sample_output` shows an Amazon.in page as the answer for a `FR,GB` item. Is cross-market resolution acceptable? | Medium — determines whether market is a filter or a feature | open |

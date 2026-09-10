@@ -1,12 +1,13 @@
 # 01 — Dataset Contract
 
-Version 1.2 — 2026-09-10. File: `product_truth_agent_dataset.xlsx`.
+Version 1.3 — 2026-09-10. File: `product_truth_agent_dataset.xlsx`.
 Everything below was verified by direct inspection of the workbook, not
 inferred from the brief. Where the brief and the file disagree, **the file
 wins**. v1.1 corrected three blocking errors and several mischaracterizations
 found by a second, independent verification pass against the real file. v1.2
 resolves the encoding-repair gap that pass's own recommendation (§13) left
-unimplemented — see `02-decision-log.md` for both rounds of changes. Where
+unimplemented. v1.3 corrects §3's usable-barcode count (18, not 35),
+measured during P2 — see `02-decision-log.md` for all three rounds. Where
 this document and an earlier reading of it disagree, this version wins.
 
 ## 1. Sheets
@@ -80,9 +81,18 @@ Consequences, and these are architectural, not cosmetic:
 1. The barcode is the single strongest identity signal available, and it is
    unusable for most of the dev set. Any pipeline that leans on exact-GTIN
    lookup will look broken in dev and fine in qa, or vice versa.
-2. Dev cannot be used to tune a barcode-matching component. Tune on the 35
-   intact rows only, or reconstruct barcodes from `ITEM_CODE`/`NAN_KEY` joins if
-   a clean source exists.
+2. Dev cannot be used to tune a barcode-matching component. **And the usable
+   subset is smaller than the 35 intact rows it first appears to be: only
+   18 of those 35 are valid GTIN lengths.** Measured during P2 against the
+   loaded rows — the 35 intact `dev` values have lengths
+   `{6: 4, 7: 13, 8: 18}`, so the 17 six- and seven-digit values (e.g.
+   `266611`, `1071580`) are not GTINs at all and cannot participate in
+   barcode matching, GTIN hard rules, or Tier-0 blocking. `qa`, by contrast,
+   is `{8: 1, 13: 411}` — 412/412 usable. Tune on the **18**, not the 35, or
+   reconstruct barcodes from `ITEM_CODE`/`NAN_KEY` joins if a clean source
+   exists. Whether those 17 short values are a *second* corruption mode
+   (leading zeros dropped by the same numeric cell format) or genuinely short
+   internal codes is unresolved — worth asking the organizers alongside Q1.
 3. Loader must parse `EXTERNAL_CODE` as **string, never numeric**, and must
    flag rounded values rather than silently passing them downstream. A row whose
    barcode matches `^\d{1,3}0{6,}$` is not a barcode; it is a hole.
