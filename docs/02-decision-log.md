@@ -511,6 +511,36 @@ Relevant later to P7 (S1/S2 strategy coverage on dev) and P9 (the GTIN hard
 rule's effective sample size).
 **Status:** standing
 
+## 2026-09-10 — `size_g_equiv` added: size is two dimensions, and 35 rows are mass-only
+**Decision:** `DescTokens` and `CanonicalEntity` each gain
+`size_g_equiv: float | None` alongside the existing `size_ml_equiv`. Volume
+normalizes to ml, mass to g, exactly one is set per parse, and the two are
+never interconverted. The stage-1 fingerprint block key becomes
+`brand + size_ml_equiv + size_g_equiv + count`.
+**Why:** found while measuring real `RETAILER_DESC` data before writing
+`specs/normalize.md`. `03` §4 stage `[0]` already required "Normalize volume
+to ml, mass to g", but `DescTokens` had only an ml field, so the contract
+could not express half of what the stage spec asked for. Measured across all
+824 `dev`+`qa` rows: 421 carry a volume token, 40 a mass token, 5 both — and
+**35 are mass-only** (`"crest 3d charcoal tooth paste 85g"`,
+`"tom's pepermint toothpaste 170g"`, `"diamond whites black edition powder
+32g"`). With a single ml field those 35 would carry `size_value=85.0,
+size_unit="g", size_ml_equiv=None`, i.e. no usable size for the stage-1
+fingerprint (`03` §1a), collapsing every mass-sized product of a given brand
+into one block regardless of actual size — precisely the over-broad blocking
+the registry design is most exposed to. The obvious shortcut, coercing g→ml
+at density 1, was rejected outright: toothpaste is denser than water, so that
+substitutes a plausible wrong number for an honestly missing one, which is the
+failure shape `05` §5 exists to name. Two nullable fields with an
+exactly-one-set invariant is the honest encoding. Cost: one extra field on two
+models, and `size_match` in `MatchFeatures` (P9) must compare within a
+dimension rather than across — noted for P9, not needed yet.
+**Affects:** `03-architecture.md` §3 (`DescTokens`, `CanonicalEntity`, new size
+note), §1a blocking bullet, §4 stage `[1]` fingerprint signature, version
+bumped to 0.6. `src/nimo/contracts.py`. `tests/test_contracts.py` fixtures.
+Consumed by `specs/normalize.md` (P3) and the block key in P6.
+**Status:** standing
+
 ---
 
 # Open questions — resolve with organizers

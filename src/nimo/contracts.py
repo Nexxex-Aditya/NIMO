@@ -16,7 +16,12 @@ class DescTokens(BaseModel):  # parsed from desc_clean
     variant_terms: list[str]  # "whitening", "sensitive", "original"
     size_value: float | None  # 100.0
     size_unit: str | None  # "ml" — normalized
-    size_ml_equiv: float | None  # for cross-unit comparison
+    size_ml_equiv: float | None  # volume normalized to ml; None for mass-sized products
+    # mass normalized to g; None for volume-sized products. Exactly one of the
+    # two is set when size_value is set — never both, never coerced across
+    # dimensions (35 rows are mass-only; g->ml at density 1 would be a
+    # plausible wrong number, `03` §3's size note).
+    size_g_equiv: float | None
     count: int | None  # multipack count; None == 1
     format_hints: list[str]  # "pump", "spray", "tablets"
     stripped_junk: list[str]  # audit trail of what was removed
@@ -81,7 +86,9 @@ class CanonicalEntity(BaseModel):  # §1a — one persisted, resolved product
     entity_id: str
     barcode: str | None  # authoritative GTIN once confirmed
     brand: str
-    size_ml_equiv: float | None
+    size_ml_equiv: float | None  # volume in ml — mirrors DescTokens
+    # mass in g — mirrors DescTokens; both feed the fingerprint block key
+    size_g_equiv: float | None
     count: int
     module: str | None
     resolved_url: str | None

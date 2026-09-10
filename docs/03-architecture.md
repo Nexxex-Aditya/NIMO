@@ -1,6 +1,6 @@
 # 03 — Architecture & Design
 
-Version 0.5 — 2026-09-10. Living document. Update on every finding that changes
+Version 0.6 — 2026-09-10. Living document. Update on every finding that changes
 a contract, a stage boundary, or a scoring rule. Change history lives in
 `02-decision-log.md`, not here — this file always reflects current state only.
 
@@ -99,8 +99,9 @@ and which tier resolved it.
 **2. Blocking, before any expensive comparison.** Never compare a new row
 against every registry entity. Partition first:
 - **Exact-key blocking** (current scope): block key = clean barcode when
-  present, else a deterministic fingerprint of `brand + size_ml_equiv + count`
-  from `DescTokens`. Cheap, exact, sufficient for a single-category
+  present, else a deterministic fingerprint of
+  `brand + size_ml_equiv + size_g_equiv + count` from `DescTokens` (both size
+  fields, since 35 rows are mass-only — §3's size note). Cheap, exact, sufficient for a single-category
   (oral-health), single-language dataset.
 - **MinHash/LSH blocking** is the specified upgrade path for when description
   drift is high enough that exact keys under-recall — multi-category or
@@ -267,7 +268,8 @@ class DescTokens:                  # parsed from desc_clean
     variant_terms: list[str]       # "whitening", "sensitive", "original"
     size_value: float | None       # 100.0
     size_unit: str | None          # "ml" — normalized
-    size_ml_equiv: float | None    # for cross-unit comparison
+    size_ml_equiv: float | None    # volume normalized to ml; None for mass-sized products
+    size_g_equiv: float | None     # mass normalized to g; None for volume-sized products. Exactly one of the two is set when size_value is set — never both, never coerced across dimensions (see the size note below)
     count: int | None              # multipack count; None == 1
     format_hints: list[str]        # "pump", "spray", "tablets"
     stripped_junk: list[str]       # audit trail of what was removed
@@ -281,7 +283,8 @@ class CanonicalEntity:             # §1a — one persisted, resolved product
                                     # never a random uuid; must be reproducible
     barcode: str | None            # authoritative GTIN once confirmed
     brand: str
-    size_ml_equiv: float | None
+    size_ml_equiv: float | None    # volume in ml — mirrors DescTokens
+    size_g_equiv: float | None     # mass in g — mirrors DescTokens; both feed the fingerprint block key
     count: int
     module: str | None
     resolved_url: str | None
@@ -377,6 +380,17 @@ class OutputRow:                   # serializes to qa header exactly, in order
     # The assembler (`03` §4 stage 8) writes None → an empty cell, nothing else.
 ```
 
+**Size is two fields, not one, and they are never interconverted.** Volume
+goes to `size_ml_equiv`, mass to `size_g_equiv`, and exactly one is set for a
+given parse. Measured on the real data: 421 rows carry a volume token, 40 a
+mass token, 5 both — and **35 rows are mass-only**, so a single `size_ml_equiv`
+field would leave those 35 with no size at all, silently weakening the stage-1
+fingerprint block key (§1a) for every one of them. Coercing g→ml at density 1
+was rejected outright: toothpaste is not water, so that would be a plausible
+wrong number rather than a missing one — the precise failure shape `05` §5
+exists to prevent. `03` §4 stage `[0]` already required "volume to ml, mass to
+g"; this makes the contract able to express it. See `02-decision-log.md`.
+
 **The two `dict[str, Any]` fields on `CandidateEvidence` — the one sanctioned
 `Any` in the contracts.** `04` §3 allows `Any` at a documented boundary; this
 is that boundary, and it is documented here. An earlier version of this
@@ -434,7 +448,7 @@ Full rationale in §1a. Mechanics:
 
 1. **Block key computation.**
    - `barcode` present and not corrupt → `BlockKey(key=barcode, method="exact_gtin")`.
-   - Else → `BlockKey(key=fingerprint(brand, size_ml_equiv, count), method="fingerprint")`,
+   - Else → `BlockKey(key=fingerprint(brand, size_ml_equiv, size_g_equiv, count), method="fingerprint")`,
      a deterministic hash of normalized identity fields from `DescTokens`. Not
      free text, and not module — module isn't known yet on a first pass.
 2. **Tier 0 — exact.** Registry lookup by the barcode key. A hit means this
