@@ -1,0 +1,74 @@
+# P3 normalizer vocabularies — specs/normalize.md §1c, §4, §5.
+#
+# Config rather than code constants because `04` §9 puts vocabularies and
+# tunables here, and because these are the parts a later phase may genuinely
+# want to extend (a new format, a new unit-of-sale code) without touching
+# parsing logic.
+#
+# NOT here, deliberately: the retailer-derived junk tokens (§1a). Those are
+# derived per-row from that row's own RETAILER value — 824/824 rows measured —
+# so there is nothing to list. A static list would rot and could strip a token
+# that is legitimate content on a different row.
+
+# §1c — unit-of-sale codes. Standalone tokens only.
+# Measured occurrence counts across 824 dev+qa rows are in the comments.
+unit_of_sale_tokens:
+  - each   # 48 rows
+  - ea     # 13
+  - sgl    # 17
+  - std    # 15
+  - u      # 18
+  - pmp    # 2
+
+# Deliberately absent from the list above, and this is load-bearing:
+#   `free`  (43 rows) — "alcohol free", "fluoride-free", "sugar-free"
+#   `extra` (31 rows) — "extra soft", "extra hard"
+# Both are real product content in this dataset and sit in the same frequency
+# band as the junk above, which makes them easy to sweep up by accident.
+# Stripping them would destroy the variant signal `03` §4 stage 4 scores on.
+
+# §4 — format hints. A genuinely closed, small set; feeds
+# MatchFeatures.format_consistent (P9). Seeded from measured token frequency.
+format_hints:
+  - pump        # 31 rows
+  - gel         # 14
+  - tablets     # 13
+  - rinse       # 13
+  - paste
+  - powder
+  - spray
+  - foam
+  - floss
+  - tape
+  - strips
+  - sachets
+  - wipes
+  - capsules
+  - lozenges
+  - gum
+  - mouthwash
+  - mouthrinse
+  - toothpaste
+  - toothbrush
+
+# §5 — stopwords removed from variant_terms. Function words plus the unit and
+# packaging words already captured structurally by size/count parsing, so they
+# do not also leak into the variant vocabulary as noise.
+stopwords:
+  - of
+  - for
+  - and
+  - with
+  - the
+  - to
+  - de
+  - a
+  - in
+  - on
+  - pack
+  - packs
+  - count
+  - ct
+  - ml
+  - g
+  - x
