@@ -50,7 +50,22 @@ strategy_order: [S1, S2, S3, S4, S5]
 # that run producing candidates was the other two continuing — which is why
 # this is a PORTFOLIO with a per-engine circuit breaker, not a preference
 # list. Bing earns its place on independence, not relevance.
-engines: [brave, startpage, bing]
+engines: [brave, startpage]
+
+# BING REMOVED 2026-09-11 after it was caught returning results for an
+# entirely different query — not weak ranking, a broken integration:
+#
+#   "sensodyne pronamel toothpaste 75ml"  -> news.mit.edu/topic/artificial-intelligence
+#   "CURAPROX aligner care foam 40ml"     -> bilibili.com/video/BV1e2421L73V
+#   '"5014697056627"'                     -> en.akinator.com
+#   "aquafresh whitening pump 100ml"      -> support.microsoft.com/.../fix-bluetooth-problems
+#
+# It reports as HEALTHY throughout — no CAPTCHA, no error — while filling the
+# candidate cap with noise. That is worse than being blocked, because the
+# circuit breaker cannot see it and the row still looks like it retrieved 20
+# candidates. The probe had already scored it 25% relevant and it was kept
+# anyway "on index independence"; that was a mistake, and 25% relevance should
+# have been read as 75% noise rather than as a diversity benefit.
 
 # --- Query budget ----------------------------------------------------------
 #

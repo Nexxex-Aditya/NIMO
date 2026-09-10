@@ -26,9 +26,15 @@ from nimo.retrieval.config import (
     load_retrieval_config,
 )
 from nimo.retrieval.queries import SearchQuery, StrategyName, build_queries, retailer_domain
-from nimo.retrieval.search import SearchFn, SearchResult, merge_candidates
+from nimo.retrieval.search import (
+    SearchFn,
+    SearchResult,
+    brand_signal_rate,
+    merge_candidates,
+)
 
 __all__ = [
+    "brand_signal_rate",
     "now_seconds",
     "default_cache",
     "cache_key",

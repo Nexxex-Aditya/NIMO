@@ -241,7 +241,7 @@ cause the blocking it was measuring:
 |---|---|---|---|
 | **brave** | 0/4 | 20.0 | **95%** |
 | **startpage** | 0/4 | 34.8 | **91%** |
-| **bing** | 0/4 | 10.0 | 25% |
+| ~~bing~~ | 0/4 | 10.0 | 25% — **removed, see §5a.5b: answers a different query entirely** |
 | mojeek | 0/4 | 0.0 | — (enabled; returns nothing for UK retail) |
 | duckduckgo | **4/4** | — | CAPTCHA |
 | qwant | **4/4** | — | CAPTCHA |
@@ -310,6 +310,50 @@ the cap — the portfolio and early exit interacting as designed.
 **42 minutes for a run that completes, caches and resumes is the answer.** The
 second run costs 7% of the first, so iterating on the matcher and running the
 demo are both effectively free.
+
+### 5a.5b Correction — that measurement was counting the wrong thing
+
+**"240 candidates, 20.0/row, the cap filled on every row" was reported as
+success. It was not.** Inspecting the cached candidate lists afterwards showed
+them dominated by Stack Overflow, VAT-lookup directories, court records,
+Wikipedia and adult sites — 30-44% obviously junk across every strategy.
+
+The cause was **Bing returning results for an entirely different query** while
+reporting as perfectly healthy:
+
+    "sensodyne pronamel toothpaste 75ml"  -> news.mit.edu/topic/artificial-intelligence
+    "CURAPROX aligner care foam 40ml"     -> bilibili.com/video/BV1e2421L73V
+    '"5014697056627"'                     -> en.akinator.com
+    "aquafresh whitening pump 100ml"      -> support.microsoft.com/fix-bluetooth-problems
+
+No CAPTCHA, no error, no unresponsive-engine entry — so the circuit breaker
+could not see it, and with early exit filling a 20-candidate cap, Bing's noise
+crowded out Brave's genuine results and stopped the cascade before it reached
+a text strategy. **A silently-wrong engine is worse than a blocked one.**
+
+Two things follow, and the second matters more than the first:
+
+1. **Bing is removed.** The probe had already scored it 25% relevant and it
+   was kept "on index independence". 25% relevance should have been read as
+   75% noise, not as a diversity benefit.
+2. **The success metric was quantity, and quantity cannot see this.** A count
+   of candidates is satisfied equally by twenty product pages and twenty
+   Bluetooth support articles. `brand_signal_rate` (`search.py`) is the cheap
+   replacement: the fraction of candidates whose URL or title mentions the
+   brand. It does not establish that a candidate is the right *product* —
+   that needs P8's page evidence and P9's matcher — but
+   `support.microsoft.com/fix-bluetooth-problems` scores 0 for an `AQUAFRESH`
+   row and no amount of threshold tuning rescues it.
+
+**Also learned about the budget, the hard way.** After this round of probing,
+Brave and Startpage both returned zero results — the measurement activity
+itself exhausted them. The free portfolio has a real daily budget, not just a
+per-minute rate. That reinforces the cache (a warm run costs nothing) and the
+long-pacing choice, and it is the honest argument for keeping a paid API
+available: not because free engines return bad results, but because there are
+only two of them left and they are exhaustible.
+
+
 
 ### 5a.6 The paid API is the backup, and the seam is already there
 

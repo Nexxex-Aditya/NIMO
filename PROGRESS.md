@@ -16,21 +16,22 @@ Gate (`04` §1): frozen HTML fixtures for 10 retailers. Authority: `03` §4
 stage `[3]`, `04` §6, `05` §2 and `05` §6 (the full DoD additions apply — P8
 is a fetch module).
 
-**P7: retrieval WORKS on free engines. The recall gate stays open on the
-gold set, not on the engines.** Measured live on 12 qa rows: 20.0
-candidates/row (cap filled every row), cold 72.4s, warm 5.3s (7%), and Brave
-circuit-broke mid-run while Startpage and Bing carried it. Full qa projection
-~1270 queries / ~42 min cold, then effectively free.
+**P7: infrastructure works; retrieval QUALITY is not yet established.**
+The cache is proven (cold 72.4s -> warm 5.3s, byte-identical) and the circuit
+breaker is proven live (Brave dropped mid-run, Startpage carried it). But the
+"20.0 candidates/row" figure was **quantity and it was wrong**: Bing was
+answering an entirely different query while reporting healthy, so 30-44% of
+candidates were junk. Bing is removed; `brand_signal_rate` exists so a count
+can never stand in for quality again. `specs/retrieval.md` §5a.5b.
 
-Engines are chosen by measurement (`specs/retrieval.md` §5a):
-brave/startpage 91-95% relevant and unblocked; **google, duckduckgo and qwant
-CAPTCHA 4/4 and are excluded** — an engine that dies partway through a run is
-worse than one that never answered, because the run looks like it worked.
-A paid search API is the documented backup, deliberately not implemented (no
-key to test against, and `04` §6 forbids network in tests).
+**Engines are down to brave + startpage, and they are exhaustible** — a round
+of probing returned them both to zero results. There is a daily budget, not
+just a per-minute rate. The cache is what makes this workable; the paid API is
+insurance against having only two engines, not against bad results.
 
-Start it with `docker compose up -d searxng` — needs `SEARXNG_SECRET` in
+Start SearxNG with `docker compose up -d searxng` — needs `SEARXNG_SECRET` in
 `.env` or the container restart-loops with the reason buried in its logs.
+`data/cache/search/` was cleared of the poisoned entries.
 
 ## Carried-forward work, explicitly not done
 
@@ -58,7 +59,7 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (469 passed)
+  uv run pytest                          -> EXIT 0  (471 passed)
 
 ## Do NOT re-do
 

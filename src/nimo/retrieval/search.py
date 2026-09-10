@@ -80,3 +80,36 @@ def merge_candidates(
 
     ranked.sort()
     return [seen[url] for _, _, url in ranked[: config.max_candidates]]
+
+
+def brand_signal_rate(candidates: list[CandidateURL], brand: str) -> float:
+    """Fraction of candidates whose URL or title mentions the brand.
+
+    **A cheap quality signal, added because counting candidates hid a real
+    failure.** A run was reported as healthy on "20.0 candidates per row — the
+    cap filled on every row", while the candidates were MIT AI news, bilibili
+    videos and `akinator.com`: Bing was returning results for an entirely
+    different query while reporting no error. Quantity looked perfect
+    throughout.
+
+    This does not establish that a candidate is the right *product* — that
+    needs the page itself (P8) and the matcher (P9). It establishes something
+    weaker and still worth having: that retrieval is returning pages about
+    roughly the right *thing*. `support.microsoft.com/fix-bluetooth-problems`
+    scores 0 for an `AQUAFRESH` row and no threshold tuning can rescue it.
+
+    `05` §5 wants the systemic pattern surfaced in the run summary rather than
+    inferred row by row; this is the retrieval-side number for that.
+    """
+    if not candidates:
+        return 0.0
+    token = brand.split()[0].lower().strip() if brand.strip() else ""
+    if not token:
+        return 0.0
+    hits = sum(
+        1
+        for candidate in candidates
+        if token in candidate.url.lower()
+        or (candidate.title_snippet or "").lower().find(token) >= 0
+    )
+    return hits / len(candidates)

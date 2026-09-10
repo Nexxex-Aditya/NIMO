@@ -30,7 +30,7 @@ CONFIG = RetrievalConfig(
     max_candidates=20,
     per_strategy_limit=8,
     strategy_order=("S1", "S2", "S3", "S4", "S5"),
-    engines=("brave", "startpage", "bing"),
+    engines=("brave", "startpage", "bing"),  # test fixture keeps 3 to exercise the breaker
     connect_timeout_s=1.0,
     read_timeout_s=1.0,
     max_retries=0,
@@ -301,11 +301,67 @@ def test_shipped_engines_exclude_the_captcha_prone_ones() -> None:
     partway through a 400-row run is worse than one that never answered,
     because the run looks like it worked."""
     engines = set(load_retrieval_config().engines)
-    assert engines == {"brave", "startpage", "bing"}
+    assert engines == {"brave", "startpage"}
     assert not engines & {"google", "duckduckgo", "qwant"}
+    assert "bing" not in engines, (
+        "Bing was measured returning results for an entirely different query — MIT AI news "
+        "for a toothpaste search, akinator.com for a barcode — while reporting as healthy. "
+        "A silently-wrong engine is worse than a blocked one: the breaker cannot see it and "
+        "the row still looks like it retrieved a full candidate list."
+    )
 
 
 def test_shipped_pacing_is_not_the_rate_that_got_us_blocked() -> None:
     """0.25s (4 queries/sec) is what triggered the CAPTCHAs, and the symptom
     was plausible-looking junk rather than an error."""
     assert load_retrieval_config().min_interval_s >= 1.0
+
+
+# --- candidate QUALITY, not quantity -----------------------------------------
+
+
+def test_brand_signal_separates_real_candidates_from_noise() -> None:
+    """**The test that would have caught the reported-as-healthy junk run.**
+
+    A run was reported healthy on "20.0 candidates/row, cap filled on every
+    row" while the candidates were MIT AI news and bilibili videos, because
+    Bing was answering a different query while reporting no error. Counting
+    candidates could not see it; this can.
+    """
+    from nimo.contracts import CandidateURL
+    from nimo.retrieval import brand_signal_rate
+
+    def candidate(url: str, title: str | None = None) -> CandidateURL:
+        return CandidateURL(url=url, source_query="S3", engine="brave", rank=1, title_snippet=title)
+
+    real = [
+        candidate("https://boots.com/aquafresh-whitening-pump-100ml"),
+        candidate("https://superdrug.com/p/12345", "Aquafresh Whitening Pump 100ml"),
+    ]
+    assert brand_signal_rate(real, "AQUAFRESH") == 1.0
+
+    noise = [
+        candidate("https://news.mit.edu/topic/artificial-intelligence"),
+        candidate("https://bilibili.com/video/BV1e2421L73V"),
+        candidate("https://support.microsoft.com/fix-bluetooth-problems"),
+    ]
+    assert brand_signal_rate(noise, "AQUAFRESH") == 0.0
+
+
+def test_brand_signal_handles_multiword_brands_and_empties() -> None:
+    from nimo.contracts import CandidateURL
+    from nimo.retrieval import brand_signal_rate
+
+    assert brand_signal_rate([], "AQUAFRESH") == 0.0
+    hit = CandidateURL(
+        url="https://boots.com/humble-natural-toothpaste",
+        source_query="S3",
+        engine="brave",
+        rank=1,
+        title_snippet=None,
+    )
+    # "THE HUMBLE CO." -> first token "the" would match almost anything, so the
+    # brand token is taken as-written; this documents the known weakness rather
+    # than pretending the signal is perfect.
+    assert brand_signal_rate([hit], "HUMBLE CO.") == 1.0
+    assert brand_signal_rate([hit], "") == 0.0

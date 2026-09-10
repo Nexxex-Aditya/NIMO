@@ -1586,6 +1586,76 @@ measurement), `config/searxng/settings.yml` (mojeek/bing enabled).
 needs the gold set, not the engines.
 
 
+## 2026-09-11 — Correction: the retrieval-quality claim was measuring quantity, and Bing was answering a different query
+**Decision:** The previous entry reported the free-engine work as measured
+success on "240 candidates, 20.0/row, the cap filled on every row". **That
+number was quantity and it was wrong.** Bing is removed from the portfolio and
+a candidate-quality signal replaces the count. The architecture (portfolio,
+breaker, early exit, cache) stands; the quality claim does not.
+
+**What was actually in those candidate lists.** Inspecting the cache
+afterwards: Stack Overflow, VAT-lookup directories, court-record sites,
+Wikipedia, Reddit, Zhihu and adult sites — **30-44% obviously junk across
+every strategy**. The top domains for text queries were `linuxmint.com` and
+`mint.intuit.com`, matching the word "mint" in "cool mint".
+
+**Root cause: Bing returns results for an entirely different query.** Not weak
+ranking — a broken integration:
+
+    "sensodyne pronamel toothpaste 75ml"  -> news.mit.edu/topic/artificial-intelligence
+    "CURAPROX aligner care foam 40ml"     -> bilibili.com/video/BV1e2421L73V
+    '"5014697056627"'                     -> en.akinator.com
+    "aquafresh whitening pump 100ml"      -> support.microsoft.com/fix-bluetooth-problems
+
+It reports as healthy throughout: no CAPTCHA, no error, no entry in
+`unresponsive_engines`. **So the circuit breaker cannot see it** — the whole
+mechanism built in the previous entry is blind to this failure mode. And with
+early exit filling a 20-candidate cap, Bing's noise crowded out Brave's real
+results *and* stopped the cascade before it reached a text strategy. **A
+silently-wrong engine is worse than a blocked one**, because every guardrail
+in the system is watching for failure signals it never emits.
+
+**Bing removed.** The probe had already scored it 25% relevant and I kept it
+"on index independence". That was the error: 25% relevance is 75% noise, and
+in a capped candidate list noise is not neutral — it evicts signal.
+
+**The deeper mistake was the metric.** A count of candidates is satisfied
+equally by twenty product pages and twenty Bluetooth support articles. I
+built a resilience mechanism, measured it with a number that could not
+distinguish success from total failure, and reported success. This is the
+same shape as the P5 finding that overall accuracy hides the tail, and the P6
+finding that a block hit rate hides within-block precision — a number that
+moves for the wrong reasons.
+
+`brand_signal_rate` (`retrieval/search.py`) is the replacement: the fraction
+of candidates whose URL or title mentions the brand. Deliberately weak — it
+cannot establish that a candidate is the right *product*, which needs P8's
+page evidence and P9's matcher — but `support.microsoft.com/fix-bluetooth`
+scores 0 for an `AQUAFRESH` row and no threshold tuning rescues that. Tested
+against the exact junk observed.
+
+**A second finding, about budget rather than quality.** After this round of
+probing, Brave and Startpage both returned **zero** results — the measurement
+activity itself exhausted them. The free portfolio has a **daily** budget, not
+only a per-minute rate, and it is now down to two engines. This does not
+change the "free as primary" conclusion — the cache means a warm run costs
+nothing — but it sharpens the argument for keeping a paid API available: not
+because free engines return bad results, but because there are two of them and
+they are exhaustible.
+
+**What still stands from the previous entry:** the cache (cold 72.4s -> warm
+5.3s, byte-identical), the circuit breaker (proven live when Brave dropped and
+Startpage carried the run), early exit, the pacing change, and the engine
+exclusions for Google/DuckDuckGo/Qwant. What does not stand is any claim about
+retrieval *quality*, which is now explicitly unestablished.
+**Affects:** `config/retrieval.yaml` (bing removed, with the evidence),
+`src/nimo/retrieval/search.py` (`brand_signal_rate`),
+`src/nimo/retrieval/__init__.py`, `tests/retrieval/test_resilience.py` (+3),
+`specs/retrieval.md` new §5a.5b and the engine table,
+`04-build-standards.md` §1 P7 row.
+**Status:** standing — supersedes the quality claim in the entry above it.
+
+
 ---
 
 # Open questions — resolve with organizers
