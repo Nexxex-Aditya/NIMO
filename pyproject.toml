@@ -33,6 +33,9 @@ dev = [
     "ruff>=0.4",
     "mypy>=1.10",
     "pytest>=8.1",
+    "pandas-stubs>=3.0.5.260730",
+    "types-openpyxl>=3.1.5.20260827",
+    "types-pyyaml>=6.0.12.20260906",
 ]
 
 [tool.ruff]
