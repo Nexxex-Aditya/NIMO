@@ -348,6 +348,7 @@ class CanonicalEntity:             # §1a — one persisted, resolved product
     size_ml_equiv: float | None    # volume in ml — mirrors DescTokens
     size_g_equiv: float | None     # mass in g — mirrors DescTokens; both feed the fingerprint block key
     count: int
+    variant_terms: list[str]       # mirrors DescTokens — what Tier 1 actually compares. Without it a persisted entity cannot rebuild its own identity vector, and Tier 1 silently never fires (see the note below)
     module: str | None
     resolved_url: str | None
     page_title: str | None         # see [PROVISIONAL — Q2]
@@ -441,6 +442,17 @@ class OutputRow:                   # serializes to qa header exactly, in order
     # empty string, never "N/A", never "NOT APPLICABLE" as a literal value.
     # The assembler (`03` §4 stage 8) writes None → an empty cell, nothing else.
 ```
+
+**`CanonicalEntity.variant_terms` exists because without it Tier 1 is
+structurally dead.** The entity mirrors `DescTokens`' brand, size and count —
+but those three *are* the fingerprint block key, equal for every member of a
+block by construction. What discriminates inside the block is the variant
+text (§4 stage 1 step 3), and an entity that does not persist it cannot
+reconstruct the vector its own lookup compares against. The first
+implementation omitted the field and passed identity text alongside the
+entity, which meant the runner had nothing to pass and **Tier 1 returned a
+miss for every row while the tests, which built the index by hand, passed.**
+An entity must be self-sufficient for its own lookup. See `02-decision-log.md`.
 
 **`ModulePrediction.nearest_example_row_uid` is the transparency mechanism,
 and it is why stage [5]'s model is a nearest-centroid rather than anything

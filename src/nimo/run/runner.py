@@ -6,6 +6,7 @@ record"; this is that sanctioned typed-failure-record site, and
 `test_only_one_broad_except_exists_in_src` asserts it stays the only one.
 """
 
+import json
 import time
 from collections import Counter
 from collections.abc import Callable
@@ -119,15 +120,30 @@ def _persist(paths: RunPaths, artifacts: RowArtifacts) -> None:
 def _trace_record(artifacts: RowArtifacts, run_id: str, config_fingerprint: str) -> str:
     """One trace record per row — `04` §10, `03` §4 stage 8.
 
-    Deliberately carries no timestamp: `04` §5 requires a re-run to be
-    byte-identical, and a clock in the trace would break that for the one
+    Built as a dict and serialized, not by splicing text onto a serialized
+    model. The earlier version did `model_dump_json()[:-1] + ',"run_id":...}'`,
+    which works only while the model happens to serialize to something ending
+    in `}` — a silent dependency on pydantic's output shape, in the one
     artifact downstream debugging actually reads.
+
+    Deliberately carries no timestamp: `04` §5 requires a re-run to be
+    byte-identical. `sort_keys` for the same reason.
     """
-    return ModulePrediction.model_dump_json(artifacts.module)[:-1] + (
-        f',"run_id":"{run_id}",'
-        f'"config_hash":"{config_fingerprint}",'
-        f'"resolution_tier":"{_tier_of(artifacts.registry)}"}}'
-    )
+    record = {
+        "row_uid": artifacts.row_uid,
+        "run_id": run_id,
+        "config_hash": config_fingerprint,
+        "resolution_tier": _tier_of(artifacts.registry),
+        "module": artifacts.module.module,
+        "module_confidence": artifacts.module.confidence,
+        "module_runner_up": artifacts.module.runner_up,
+        "module_runner_up_gap": artifacts.module.runner_up_gap,
+        "nearest_example_row_uid": artifacts.module.nearest_example_row_uid,
+        "nearest_example_similarity": artifacts.module.nearest_example_similarity,
+        "registry_hit": artifacts.registry.hit,
+        "registry_similarity": artifacts.registry.similarity,
+    }
+    return json.dumps(record, sort_keys=True)
 
 
 def _tier_of(result: RegistryLookupResult) -> str:

@@ -55,7 +55,7 @@ def stages(dev_rows: list[RawRow]) -> Stages:
     classifier = ModuleClassifier.fit(
         queries, load_module_labels(WORKBOOK, "dev", rules), load_classify_config()
     )
-    index = build_index([], {}, fit_identity_idf(queries))
+    index = build_index([], fit_identity_idf(queries))
     thresholds = load_thresholds()
     return Stages(
         normalize=normalize_row,

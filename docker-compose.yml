@@ -12,10 +12,16 @@
 
 services:
   searxng:
-    # Pinned by digest-bearing tag, never `latest` — an upstream image change
-    # would silently alter which engines answer and in what order, which is
-    # exactly the reproducibility problem self-hosting exists to solve.
-    image: searxng/searxng:2025.9.1-9c62a1a3f
+    # Pinned by tag AND digest, never `latest` — an upstream image change would
+    # silently alter which engines answer and in what order, which is exactly
+    # the reproducibility problem self-hosting exists to solve. The digest is
+    # what actually pins it: a tag can be repointed, a digest cannot.
+    #
+    # Verified by `docker pull` on 2026-09-11, not copied from documentation.
+    # An earlier version of this file carried an invented tag
+    # (`2025.9.1-9c62a1a3f`) that does not exist and would have failed on the
+    # first `docker compose up` — see `02-decision-log.md`.
+    image: searxng/searxng:2026.9.10-931fd9787@sha256:2fb0fa85096fe6df5c3ab98ecb4d6e0ee2ef66b8fb96ce6fce0f75b51c4bd90a
     container_name: nimo-searxng
     ports:
       - "8080:8080"

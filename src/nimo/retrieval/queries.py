@@ -4,6 +4,7 @@ Pure: a `ProductQuery` in, a list of `SearchQuery` out, no network.
 """
 
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
@@ -29,6 +30,18 @@ class SearchQuery:
     text: str
 
 
+@lru_cache(maxsize=4)
+def _retailer_table(retailers_path: Path) -> dict[str, object]:
+    """Parse `config/retailers.yaml` once, not once per row.
+
+    Cached like every other config loader in this codebase
+    (`normalize/vocab.py`, `classify/config.py`): `retailer_domain` is called
+    per row, so an uncached read meant 412+ YAML parses per run.
+    """
+    table = yaml.safe_load(retailers_path.read_text(encoding="utf-8"))
+    return table if isinstance(table, dict) else {}
+
+
 def retailer_domain(retailer_raw: str, retailers_path: Path) -> str | None:
     """The retailer's product domain, or `None` when it has none.
 
@@ -37,8 +50,7 @@ def retailer_domain(retailer_raw: str, retailers_path: Path) -> str | None:
     (`BRANDBANK`, `CWS CENSUS`, `POSITIVE SOLUTIONS`). `03` §4 stage 2:
     unmapped retailers skip S4.
     """
-    table = yaml.safe_load(retailers_path.read_text(encoding="utf-8"))
-    entry = table.get(retailer_raw)
+    entry = _retailer_table(retailers_path).get(retailer_raw)
     if not isinstance(entry, dict):
         return None
     domain = entry.get("domain")

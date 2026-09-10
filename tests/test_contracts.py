@@ -94,6 +94,7 @@ CANONICAL_ENTITY = CanonicalEntity(
     size_ml_equiv=100.0,
     size_g_equiv=None,
     count=1,
+    variant_terms=["whitening", "pump"],
     module="TOOTH CLEANING - FOAM/GEL/LIQUID/PASTE (NATURAL TEETH)",
     resolved_url="https://www.boots.com/aquafresh-whitening-100ml",
     page_title="Aquafresh Whitening Toothpaste 100ml | Boots",

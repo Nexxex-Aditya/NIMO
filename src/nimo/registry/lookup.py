@@ -31,27 +31,27 @@ class RegistryIndex:
     """
 
     by_entity_id: dict[str, CanonicalEntity]
-    identity_by_entity: dict[str, dict[str, float]]
+    identity_by_entity: dict[str, dict[str, float]]  # derived from entity.variant_terms
     idf: dict[str, float]
 
 
-def build_index(
-    entities: list[CanonicalEntity],
-    identity_texts: dict[str, str],
-    idf: dict[str, float],
-) -> RegistryIndex:
+def build_index(entities: list[CanonicalEntity], idf: dict[str, float]) -> RegistryIndex:
     """Index a persisted entity set for lookup.
 
-    `identity_texts` maps `entity_id` to the identity text of the row that
-    established it — carried alongside rather than recomputed, because a
-    `CanonicalEntity` stores brand/size/count but not the variant terms that
-    Tier 1 actually compares.
+    Identity vectors are derived **from the entities themselves**, via
+    `CanonicalEntity.variant_terms`. An earlier signature took the identity
+    texts as a third argument, which meant a caller could pass nothing and get
+    an index on which Tier 1 misses every row — and the runner did exactly
+    that, silently, while hand-built test indexes passed. An entity must be
+    self-sufficient for its own lookup (`03` §3).
     """
     return RegistryIndex(
         by_entity_id={entity.entity_id: entity for entity in entities},
         identity_by_entity={
-            eid: tfidf_vector(char_ngrams(text, NGRAM_SIZES), idf)
-            for eid, text in identity_texts.items()
+            entity.entity_id: tfidf_vector(
+                char_ngrams(" ".join(entity.variant_terms), NGRAM_SIZES), idf
+            )
+            for entity in entities
         },
         idf=idf,
     )

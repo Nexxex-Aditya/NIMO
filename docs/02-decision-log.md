@@ -1306,6 +1306,88 @@ No contract changes.
 and more than 6 labelled gold rows.
 
 
+## 2026-09-11 — Self-audit: Tier 1 was dead in the real pipeline, the compose tag was invented, the client had no tests
+**Decision:** Four defects found by auditing my own output from this run, all
+fixed. `CanonicalEntity` gains `variant_terms`; `build_index` loses its third
+argument; `docker-compose.yml` is pinned by verified digest; `SearxngClient`
+gains 26 tests. Plus three hardening items.
+
+**1. Tier 1 could never fire in the real pipeline, and the tests could not see
+it.** `build_index(entities, identity_texts, idf)` took the identity texts as
+a separate argument. The runner had none to pass and passed `{}`, so
+`identity_by_entity` was empty, so every Tier-1 lookup returned a miss. **The
+registry stage was a no-op in the actual run.** Output was not wrong — a cold
+registry *should* miss — which is precisely why it survived: it would have
+stayed dead silently the moment entities existed.
+
+Every existing test passed because **each one built its index by hand with the
+texts filled in**, exercising a code path the pipeline could not reach. That
+is the same "measurement logic differs from pipeline logic" failure recorded
+one entry earlier for P6's block key — one phase later, in my own code.
+
+Root cause was a contract gap: `CanonicalEntity` mirrored `DescTokens`' brand,
+size and count — but those three *are* the fingerprint block key, equal across
+a block by construction. The field that discriminates, `variant_terms`, was
+not persisted, so an entity could not rebuild the vector its own lookup
+compares against. Fixed by adding it and deriving identity vectors from the
+entities themselves; `build_index` now takes exactly what `read_entities`
+returns, so there is no argument a caller can forget.
+
+The regression test refuses the shortcut that hid it: it writes an entity to
+disk, reads it back, and indexes **only what came off disk**. A second test
+asserts `build_index`'s signature has no third parameter, because the
+parameter itself was the defect.
+
+**2. The SearxNG image tag was invented.** `searxng/searxng:2025.9.1-9c62a1a3f`
+was written to look plausible and never checked; it does not exist and
+`docker compose up` would have failed on first use. Real tags are dated
+differently (`2026.9.10-931fd9787`). Now pinned by **tag and digest**
+(`sha256:2fb0fa85...`), verified by an actual `docker pull` — a tag can be
+repointed, a digest cannot. Worth recording as its own defect class: a
+fabricated identifier that looks right is worse than an obvious placeholder,
+because nothing prompts anyone to check it.
+
+**3. `SearxngClient` had zero tests while `specs/retrieval.md` §7 claimed it
+shipped "against frozen fixtures".** A spec asserting something untrue is the
+exact failure this project keeps catching in `01`/`03`. 26 tests added via
+`httpx.MockTransport` — still zero network (`04` §6) — covering rank ordering,
+the limit, malformed entries surviving, the `format=json` parameter actually
+being sent, non-JSON bodies raising, 4xx not retried, 5xx retried then given
+up, timeouts retried, an unreachable instance failing immediately with the fix
+command in the message, both timeout halves set, and backoff being bounded and
+jittered.
+
+**Hardening, same pass:**
+- **`_trace_record` built the trace by splicing text onto a serialized model**
+  (`model_dump_json()[:-1] + ...`). Works only while the model happens to
+  serialize to something ending in a closing brace — a silent dependency on
+  pydantic's output shape, in the one artifact downstream debugging reads. Now
+  a dict with `sort_keys`, which also keeps re-runs byte-identical.
+- **`is_row_complete` checked existence, not size.** A zero-byte artifact
+  would count as complete and be skipped on every future resume, permanently.
+  Now `st_size > 0`, the same single `stat` call. Full JSON parsing is
+  deliberately not done on the resume path: ~1200 reads per resume to guard a
+  case atomic rename already makes unlikely, and the reader raises loudly.
+- **`retailer_domain` re-parsed `retailers.yaml` on every call** — 412+ YAML
+  parses per run, inconsistent with the `lru_cache` pattern in every other
+  config loader here. Now cached.
+
+**What this pass says about the process:** three of these four were mine, from
+this run, and none were caught by 430 passing tests. The two that mattered
+shared a shape — **a test or a script that constructs its inputs differently
+from how production constructs them**. Tests that build fixtures by hand
+verify the function; only tests that go through persistence, or assert the
+call signature, verify the wiring.
+**Affects:** `03-architecture.md` §3 (`CanonicalEntity.variant_terms` + note).
+`src/nimo/contracts.py`, `tests/test_contracts.py`.
+`src/nimo/registry/lookup.py` (`build_index` signature).
+`src/nimo/run/__main__.py`, `runner.py`, `artifacts.py`.
+`src/nimo/retrieval/queries.py`. `docker-compose.yml`.
+New `tests/retrieval/test_client.py`. `tests/registry/test_store.py`,
+`tests/run/test_runner.py`. `specs/retrieval.md` §1.
+**Status:** standing
+
+
 ---
 
 # Open questions — resolve with organizers

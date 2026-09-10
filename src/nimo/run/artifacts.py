@@ -76,8 +76,20 @@ def is_row_complete(root: Path, row_uid: str, stages: tuple[str, ...] = STAGE_SE
     A row with *some* artifacts is not complete and is re-run from the start —
     partial state is never trusted, because the run that produced it was
     interrupted for a reason nobody recorded.
+
+    **Non-empty, not merely present.** A zero-byte artifact — a full disk, a
+    kill between `mkstemp` and the write — would otherwise count as complete
+    and be skipped on every future resume, permanently. `st_size` costs the
+    same single `stat` call `exists()` already made. Full JSON parsing is
+    deliberately not done here: it would mean reading ~1200 files on every
+    resume to guard against a case atomic rename already makes very unlikely,
+    and the reader raises loudly if one ever is malformed.
     """
-    return all(artifact_path(root, stage, row_uid).exists() for stage in stages)
+    for stage in stages:
+        path = artifact_path(root, stage, row_uid)
+        if not path.exists() or path.stat().st_size == 0:
+            return False
+    return True
 
 
 def completed_row_uids(root: Path, row_uids: list[str]) -> set[str]:

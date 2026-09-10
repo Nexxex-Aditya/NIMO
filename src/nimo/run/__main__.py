@@ -46,7 +46,7 @@ def main(argv: list[str]) -> int:
     )
 
     entities = read_entities(REGISTRY_DIR / "entities.jsonl")
-    index = build_index(entities, {}, fit_identity_idf(dev_queries))
+    index = build_index(entities, fit_identity_idf(dev_queries))
 
     paths = RunPaths(
         artifacts=OUT_DIR / "artifacts" / sheet,

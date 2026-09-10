@@ -113,6 +113,11 @@ class CanonicalEntity(BaseModel):  # §1a — one persisted, resolved product
     # mass in g — mirrors DescTokens; both feed the fingerprint block key
     size_g_equiv: float | None
     count: int
+    # mirrors DescTokens — what Tier 1 actually compares. brand/size/count ARE
+    # the block key and are equal across a block by construction, so without
+    # this a persisted entity cannot rebuild its own identity vector and Tier 1
+    # silently never fires (`03` §3, `02-decision-log.md`).
+    variant_terms: list[str]
     module: str | None
     resolved_url: str | None
     page_title: str | None  # see [PROVISIONAL — Q2]

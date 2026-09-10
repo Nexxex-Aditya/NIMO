@@ -19,13 +19,10 @@ that is every row, which the P6a runner already reports honestly as
 blocked here, for two independent reasons, and neither is fixable by writing
 more code.**
 
-1. **No live SearxNG.** `03` §4 stage 2 requires a self-hosted instance and
-   forbids public ones ("rate limits and non-reproducibility"). Docker CLI
-   29.7.2 and Compose v5.3.1 are installed on this machine, but the daemon is
-   not running (`failed to connect to the docker API at
-   npipe:////./pipe/dockerDesktopLinuxEngine`). `docker-compose.yml` and a
-   pinned SearxNG config ship with this phase, so bringing it up is one
-   command — but it has not been run, and no recall number has been produced.
+1. **~~No live SearxNG.~~ RESOLVED 2026-09-11** — the daemon is up (Docker
+   29.7.2) and the image is pinned by digest, verified by `docker pull`
+   rather than copied from documentation. See §1a for what the live run
+   actually measured.
 2. **The gold set is 6 rows, 5 with URLs** (P4, partial by design). Recall@20
    over 5 URLs is not a measurement; it is an anecdote with a percentage sign.
    `specs/gold.md` is explicit that fabricating entries to reach a round
