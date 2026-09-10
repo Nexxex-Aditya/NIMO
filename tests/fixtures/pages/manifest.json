@@ -1,0 +1,102 @@
+[
+ {
+  "bytes_captured": 649276,
+  "bytes_committed": 381711,
+  "content_type": "text/html; charset=UTF-8",
+  "final_url": "https://www.chemist-4-u.com/eucryl-freshmint-smokers-toothpowder-50g",
+  "retailer": "chemist4u",
+  "scrubbed": true,
+  "status": 200,
+  "url": "https://www.chemist-4-u.com/eucryl-freshmint-smokers-toothpowder-50g"
+ },
+ {
+  "bytes_captured": 1372073,
+  "bytes_committed": 1017140,
+  "content_type": "text/html;charset=UTF-8",
+  "final_url": "https://www.amazon.co.uk/dp/B07CM9LMX2",
+  "retailer": "amazon",
+  "scrubbed": true,
+  "status": 200,
+  "url": "https://www.amazon.co.uk/dp/B07CM9LMX2"
+ },
+ {
+  "bytes_captured": 67054,
+  "bytes_committed": 66203,
+  "content_type": "text/html; charset=UTF-8",
+  "final_url": "https://www.aquafresh.com/en-gb/",
+  "retailer": "aquafresh",
+  "scrubbed": true,
+  "status": 200,
+  "url": "https://www.aquafresh.com/en-gb/"
+ },
+ {
+  "bytes_captured": 6183,
+  "bytes_committed": 3314,
+  "content_type": "text/html; charset=UTF-8",
+  "final_url": "https://www.boots.com/aquafresh-complete-care-original-toothpaste-100ml-10263558",
+  "retailer": "boots",
+  "scrubbed": true,
+  "status": 200,
+  "url": "https://www.boots.com/aquafresh-complete-care-original-toothpaste-100ml-10263558"
+ },
+ {
+  "bytes_captured": 71652,
+  "bytes_committed": 71081,
+  "content_type": "text/html",
+  "final_url": "https://www.tesco.com/groceries/en-GB/products/265178356",
+  "retailer": "tesco",
+  "scrubbed": true,
+  "status": 403,
+  "url": "https://www.tesco.com/groceries/en-GB/products/265178356"
+ },
+ {
+  "bytes_captured": 0,
+  "bytes_committed": 0,
+  "content_type": "text/html; charset=UTF-8",
+  "final_url": "https://www.ocado.com/products/aquafresh-complete-care-toothpaste-52745011",
+  "retailer": "ocado",
+  "scrubbed": true,
+  "status": 202,
+  "url": "https://www.ocado.com/products/aquafresh-complete-care-toothpaste-52745011"
+ },
+ {
+  "bytes_captured": 5813,
+  "bytes_committed": 2418,
+  "content_type": "text/html; charset=UTF-8",
+  "final_url": "https://www.weldricks.co.uk/products/aquafresh-complete-care-toothpaste-100ml",
+  "retailer": "weldricks",
+  "scrubbed": true,
+  "status": 403,
+  "url": "https://www.weldricks.co.uk/products/aquafresh-complete-care-toothpaste-100ml"
+ },
+ {
+  "bytes_captured": 430157,
+  "bytes_committed": 162315,
+  "content_type": "text/html; charset=utf-8",
+  "final_url": "https://pharmazondirect.com/products/eucryl-toothpowder-freshmint-flavour-50g",
+  "retailer": "pharmazon",
+  "scrubbed": true,
+  "status": 200,
+  "url": "https://www.pharmazondirect.com/products/eucryl-toothpowder-freshmint-flavour-50g"
+ },
+ {
+  "bytes_captured": 120411,
+  "bytes_committed": 92809,
+  "content_type": "text/html; charset=UTF-8",
+  "final_url": "https://vita-point.co.uk/eucryl-toothpowder-powerful-stain-removal-freshmint-50g",
+  "retailer": "vitapoint",
+  "scrubbed": true,
+  "status": 404,
+  "url": "https://vita-point.co.uk/eucryl-toothpowder-powerful-stain-removal-freshmint-50g"
+ },
+ {
+  "bytes_captured": 456168,
+  "bytes_committed": 325431,
+  "content_type": "text/html; charset=utf-8",
+  "final_url": "https://www.wholedent.com/products/curaprox-aligner-foam-40ml",
+  "retailer": "wholedent",
+  "scrubbed": true,
+  "status": 200,
+  "url": "https://www.wholedent.com/products/curaprox-aligner-foam-40ml"
+ }
+]

@@ -9,29 +9,23 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P8 (fetch + extract) — NOT STARTED
-Last completed milestone: P7 (retrieval) — **built, gate DEFERRED not met**.
-Next milestone: P8. **No spec file exists yet** — write `specs/fetch.md` first.
-Gate (`04` §1): frozen HTML fixtures for 10 retailers. Authority: `03` §4
-stage `[3]`, `04` §6, `05` §2 and `05` §6 (the full DoD additions apply — P8
-is a fetch module).
+Phase: P8 (fetch + extract) — **HALF DONE**
+Last completed milestone: P7 (retrieval infrastructure).
+Next: finish P8's **fetch client** — robots.txt, per-domain rate limit, page
+cache, manual per-hop redirect following. Specified in `specs/fetch.md`
+§2-§4, unwritten. The SSRF guard, the extraction cascade and 10 scrubbed
+retailer fixtures ARE built and tested (44 tests).
 
-**P7: infrastructure works; retrieval QUALITY is not yet established.**
-The cache is proven (cold 72.4s -> warm 5.3s, byte-identical) and the circuit
-breaker is proven live (Brave dropped mid-run, Startpage carried it). But the
-"20.0 candidates/row" figure was **quantity and it was wrong**: Bing was
-answering an entirely different query while reporting healthy, so 30-44% of
-candidates were junk. Bing is removed; `brand_signal_rate` exists so a count
-can never stand in for quality again. `specs/retrieval.md` §5a.5b.
-
-**Engines are down to brave + startpage, and they are exhaustible** — a round
-of probing returned them both to zero results. There is a daily budget, not
-just a per-minute rate. The cache is what makes this workable; the paid API is
-insurance against having only two engines, not against bad results.
-
-Start SearxNG with `docker compose up -d searxng` — needs `SEARXNG_SECRET` in
-`.env` or the container restart-loops with the reason buried in its logs.
-`data/cache/search/` was cleared of the poisoned entries.
+**What P8 measured, and it reaches past this phase:**
+- **JSON-LD Product on only 3 of 10 real pages.** P9's "GTIN hard rule is
+  near-decisive" rests on 30% availability, not near-universal.
+- **Amazon — the largest retailer in the dataset — publishes neither JSON-LD
+  nor OpenGraph.** Body text is its only evidence.
+- **4 of 10 pages are bot walls or JS shells** (tesco/weldricks 403, boots
+  6KB shell, ocado 0 bytes). Failure is the common path, not the edge case.
+- **chemist-4-u and pharmazondirect both report GTIN 5011309895612** for the
+  same product — the row whose gold label names a *third* retailer. This is
+  the evidence for scoring the PRODUCT rather than the URL string.
 
 ## Carried-forward work, explicitly not done
 
@@ -59,7 +53,7 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (471 passed)
+  uv run pytest                          -> EXIT 0  (515 passed)
 
 ## Do NOT re-do
 

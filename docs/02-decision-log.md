@@ -1656,6 +1656,95 @@ retrieval *quality*, which is now explicitly unestablished.
 **Status:** standing — supersedes the quality claim in the entry above it.
 
 
+## 2026-09-11 — P8 (half): the web gives us far less than `03` assumes, and two retailers agree on a GTIN
+**Decision:** `specs/fetch.md` written from measurement, then the extraction
+cascade (`src/nimo/extract/`), the SSRF guard (`src/nimo/fetch/guard.py`) and
+ten scrubbed retailer fixtures built and tested. **The fetch client — robots,
+rate limiting, page cache, per-hop redirects — is not built**, and `04` §1's
+P8 row says so rather than claiming the phase.
+
+**1. Measured what ten real UK oral-care product pages actually give a
+fetcher**, one request per domain, 4s apart, before designing anything:
+
+| | pages | note |
+|---|---|---|
+| JSON-LD `Product` | **3 / 10** | chemist-4-u (nested in `@graph`), pharmazon, wholedent |
+| OpenGraph | 4 / 10 | most reliable single source of title and image |
+| bot wall (403) | 2 / 10 | tesco, weldricks |
+| JS shell / empty | 2 / 10 | boots (6 KB), ocado (**0 bytes**, HTTP 202) |
+| body text only | 10 / 10 | the only evidence Amazon gives at all |
+
+**Three consequences that reach beyond this phase.** `03` §4 stage 3 ranks
+JSON-LD first, which is right — but the *availability* underneath P9's "GTIN
+hard rule is near-decisive" is **30%, not near-universal**. **Amazon, the
+largest retailer in the dataset, publishes neither JSON-LD nor OpenGraph** on
+1.4 MB of HTML. And bot walls are the *common* failure mode, not an edge case,
+which makes `03` §4 stage 3's "a page that fails extraction stays in the
+record" a main path rather than an error path.
+
+More evidence for **Q6**: P4 found Tesco blocking a browser; P8 finds Tesco,
+Weldricks, Boots and Ocado all unusable to a polite fetcher. Roughly half of
+large UK retail is not scrapable this way regardless of what is permitted.
+
+**2. The finding that validates changing the URL gate.** chemist-4-u and
+pharmazondirect are different sites, different titles, different markup — and
+**both report GTIN `5011309895612`** for the same Eucryl toothpowder. `dev:410`
+in the P4 gold set is that row, and its label names a *third* retailer.
+
+Scoring "did we find THE labelled URL" marks both of those wrong. Scoring the
+*product* marks both right. `01` §5 hinted at this when the organizers' own
+reference answer resolved a GB item to Amazon.in; this is the same thing
+measured, with a shared identifier to key on. A test pins it.
+
+**3. Three extractor behaviours that came from real markup, not the spec.**
+Each is a page that would otherwise yield nothing:
+- **`@graph` nesting** — chemist-4-u's Product sits inside an
+  `ItemPage`/`WebPage` graph. A top-level `@type == "Product"` check finds
+  nothing there.
+- **A malformed block among valid ones** — aquafresh ships 5 `ld+json` blocks
+  and one fails to parse. One bad block is a `parse_warning`, not a failed
+  page.
+- **`@type` as a list** — `["ItemPage","WebPage"]` is real markup; a string
+  comparison misses it.
+
+Also caught: HTML entities surviving into the title
+(`Eucryl&#x20;Freshmint&#x20;Tooth&#x20;Powder`). `01` §5 records that the
+title may itself be the submitted value (`[PROVISIONAL — Q2]`), so an encoded
+one would have shipped.
+
+**4. Fixture scrubbing needed two passes, and the second was the real one.**
+`04` §9 forbids committing credentials, cookies or session tokens. Stripping
+every `<script>` except `ld+json` removed tracking and cut 3.0 MB to 2.1 MB —
+and a verification pass then found **live Amazon session ids and CSRF tokens
+surviving in data attributes, JSON blobs and hidden inputs: 45 copies of one
+session id.** Key-targeted patterns kept missing copies, so the redaction is
+**shape-based** — the session-id format, long base64 blobs, request ids. Final
+state: zero session ids, zero base64 blobs, 410 redaction markers, 1.9 MB. A
+test guards the shapes, because near-miss is miss.
+
+**5. The SSRF guard is P8's, and it does what P7's could not.** P7 dropped
+candidates whose host was a private IP *literal*; anything needing DNS or the
+redirect chain lives here. It resolves the hostname and checks **every**
+returned address, not the first — a host can resolve to one public and one
+private address, and checking only the first is bypassed by DNS ordering the
+attacker controls. `05` §2's per-hop redirect requirement is tested directly.
+
+Kept scoped, with a test that says so: the CIS LLM endpoint is itself RFC1918,
+so promoting this into a global outbound check would block the pipeline's own
+model. The guard's only input is a URL.
+
+**What is deliberately not built:** the fetch client. Robots, rate limiting,
+the page cache and manual per-hop redirect following are specified
+(`specs/fetch.md` §2–§4) and unwritten. The extraction half is independently
+useful — it runs against the committed fixtures — and claiming the phase on
+half of it is what `04` §11 exists to prevent.
+**Affects:** new `specs/fetch.md`, new `src/nimo/extract/` (`jsonld.py`,
+`page.py`), new `src/nimo/fetch/guard.py`, new `tests/extract/`,
+`tests/fetch/`, new `tests/fixtures/pages/` (10 scrubbed pages + manifest).
+`04-build-standards.md` §1 P8 row.
+**Status:** standing — P8 is half complete and the row says so.
+
+
 ---
 
 # Open questions — resolve with organizers
