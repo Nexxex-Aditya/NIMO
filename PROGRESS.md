@@ -9,26 +9,25 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P7 (SearxNG + retrieval) — NOT STARTED
-Last completed milestone: P6a (batch runner & orchestration), gate passed.
-Next milestone: P7. **No spec file exists yet** — write `specs/retrieval.md`
-first, then implement. Gate (`04` §1): Recall@20 measured on the gold set.
-Authority: `03` §4 stage `[2]`, `04` §6 (network discipline).
+Phase: P8 (fetch + extract) — NOT STARTED
+Last completed milestone: P7 (retrieval) — **built, gate DEFERRED not met**.
+Next milestone: P8. **No spec file exists yet** — write `specs/fetch.md` first.
+Gate (`04` §1): frozen HTML fixtures for 10 retailers. Authority: `03` §4
+stage `[3]`, `04` §6, `05` §2 and `05` §6 (the full DoD additions apply — P8
+is a fetch module).
 
-**P7 is the first phase that touches the network**, so `04` §6 and `05` §2
-become live for the first time: zero network calls in tests (frozen fixtures
-only), one HTTP client wrapper with timeouts/rate limits/backoff, SSRF
-rejection of private ranges — and note `05` §2's guard must be scoped to
-untrusted candidate URLs, not applied globally, or it blocks our own LLM
-endpoint, which is itself an RFC1918 address (`config/models.yaml`).
+**P7's gate is open, deliberately.** Recall@20 needs (a) a live SearxNG —
+`docker compose up -d searxng`, the compose file ships pinned, but Docker's
+daemon is not running on this machine — and (b) more than 6 labelled gold
+rows, since Recall@20 over 5 URLs is an anecdote with a percentage sign. No
+recall number was estimated. Everything offline-verifiable ships and is
+tested.
 
-Also note P7's gate depends on the P4 gold set, which is **6 of 50 rows
-labelled**. Recall@20 measured on 6 rows is a weak number and should be
-reported as such, or more rows labelled first.
-
-The runner (P6a) is the place new stages plug in: add the stage name to
-`STAGE_SEQUENCE` and a call to `process_row`'s sequence. It already drives
-412 rows with resume and typed failure capture.
+**P8 inherits three things from P7 that are easy to get wrong:**
+`05` §2's private-range check must re-run after **every redirect hop**, not
+just on the original URL; it must stay scoped to fetched candidates and never
+become a global outbound guard (the CIS LLM endpoint is RFC1918); and P8 owns
+DNS resolution, which P7 deliberately does not do.
 
 ## Carried-forward work, explicitly not done
 
@@ -51,16 +50,16 @@ The runner (P6a) is the place new stages plug in: add the stage name to
 
 ## Verified state (re-check on resume, don't trust blindly)
 
-Last `make check`: PASS as of the P6a milestone commit. `make` is absent on
+Last `make check`: PASS as of the P7 commit. `make` is absent on
 this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (375 passed)
+  uv run pytest                          -> EXIT 0  (430 passed)
 
 ## Do NOT re-do
 
-- P0–P6a: done, gates verified by execution, committed.
+- P0–P6a: done; P7 built with its gate open (see above), gates verified by execution, committed.
 - **Row identity is `row_uid` (`"dev:0"`), never `NAN_KEY`/`ITEM_CODE`.**
   `01` §14: all three columns carry the same rounding corruption. Never key
   an artifact, a cache entry, a registry member or a gold label on
@@ -87,6 +86,14 @@ this machine; ran its four commands directly per `04` §11:
 - **P6: Tier 0 fires 0/412 in a single pass over this dataset** (0 shared
   dev/qa barcodes, 0 duplicates within qa) and 412/412 on a re-run. That is
   the warm-start property working, not a bug. Demo it as a re-run.
+- **P7: NFKC alone does NOT fold the lookalike hyphen.** Measured:
+  `normalize("NFKC", "‑")` -> `‐`, still non-ASCII. `01` §13 and the
+  first spec draft both assumed it did. An explicit dash-fold table plus
+  deletion of invisible characters is required, and is regression-tested.
+- **P7: S1/S2 fire only on `barcode_valid`** — 18 of dev's 35 surviving
+  barcodes, not all 35. The other 17 are 6-7 digits and are not GTINs.
+- **P7: unknown query parameters are KEPT.** Only tracking/session ones are
+  stripped. Dropping `?variant=` would merge a 75ml and a 100ml listing.
 - **P6a: the runner is the only `except Exception` in `src/`**, paired with a
   typed `RowFailure`, and `test_only_one_broad_except_exists_in_src` pins it.
   If that test fails, the fix is to remove the new broad except, not to add a

@@ -1199,6 +1199,113 @@ gap was found.
 **Status:** standing
 
 
+## 2026-09-11 — P7 retrieval: built, gate deliberately NOT met; NFKC does not fix the lookalike hyphen; S1 gated on `barcode_valid`
+**Decision:** `specs/retrieval.md` written and implemented — `docker-compose.yml`
+with a pinned SearxNG tag, `config/searxng/settings.yml`,
+`config/retrieval.yaml`, and `src/nimo/retrieval/` (queries, canonical, config,
+search, client). **`04` §1's P7 row is marked "built; gate DEFERRED, not met"
+rather than done**, and that is the most important decision in the phase.
+
+**1. The Recall@20 gate is not met and no number is reported.** Two
+independent blockers, neither fixable by writing more code:
+- **No live SearxNG.** `03` §4 stage 2 requires a self-hosted instance and
+  forbids public ones. Docker CLI 29.7.2 and Compose v5.3.1 are installed here
+  but the daemon is not running (`failed to connect to the docker API at
+  npipe:////./pipe/dockerDesktopLinuxEngine`). The compose file ships, so
+  bringing it up is one command — but it has not been run.
+- **The gold set is 6 rows, 5 with URLs** (P4, partial by design). Recall@20
+  over 5 URLs is not a measurement. `specs/gold.md` argues that a fabricated
+  gold entry is worse than a missing one because it miscalibrates silently;
+  the same argument applies to a recall figure computed over five of them.
+
+Reporting "Recall@20 = 80%" from four hits out of five would have satisfied
+the gate's letter and destroyed its purpose. Everything verifiable offline
+ships and is tested; the number is deferred, not estimated.
+
+**2. NFKC does not do what `01` §13 assumed, and a test caught it.** `01` §13
+and the first draft of `specs/retrieval.md` both said NFKC normalization folds
+the `U+2011` non-breaking hyphen found in `sample_output`'s `PRODUCT_URL`.
+Measured: **`unicodedata.normalize("NFKC", "\u2011")` returns `\u2010`
+(HYPHEN), not ASCII `-`.** The whole `U+2010..U+2015` range, `U+2212` MINUS
+SIGN and `U+00AD` SOFT HYPHEN all survive NFKC as non-ASCII; only `U+FE63` and
+`U+FF0D` fold on their own. So a canonicalizer relying on NFKC alone still
+emits a URL containing a non-ASCII character — one that resolves nowhere and
+dedups against nothing, which is precisely the failure `01` §13 raised.
+
+Fixed with an explicit dash-fold table, plus **deletion** (not folding) of
+invisible formatting characters (`U+00AD`, `U+200B`–`U+200D`, `U+FEFF`): they
+carry no meaning in a URL, survive copy-paste from rendered pages, and folding
+them to a visible character would corrupt the path. Parametrized regression
+tests cover all seven dashes and all five invisibles, and assert the result
+`isascii()`.
+
+Worth noting how this was found: the test was written first, asserting the
+behavior the spec claimed, and it failed. Had the implementation been written
+to match the spec's assertion without a test, the bug would have shipped
+looking correct.
+
+**3. S1/S2 are gated on `barcode_valid`, not on "not corrupt", and on `dev`
+that is most of the strategy.** 35 `dev` rows survive the rounding defect, but
+`01` §3 already measured that only **18** are valid GTIN lengths — the rest
+are 6–7 digits (`266611`, `1071580`) and are not GTINs. Issuing one as a
+barcode-exact search returns unrelated results with no error anywhere, which
+is a latent failure (`05` §5) rather than a bad query. Pinned in a test.
+
+**4. The dev/qa retrieval asymmetry, quantified.** `03` §4 stage 2 warns "do
+not tune retrieval on dev alone". Measured coverage:
+
+| strategy | `dev` | `qa` |
+|---|---|---|
+| S1/S2 barcode-exact | **18 / 412 (4%)** | **412 / 412 (100%)** |
+| S3 brand+variant+size | 225 | 220 |
+| S4 site-restricted | 223 (54%) | 256 (62%) |
+| S5 verbatim | 412 | 412 |
+
+The single most decisive strategy is available on 4% of `dev` and 100% of
+`qa`. Any tuning done against `dev` tunes the fallback path exclusively — the
+warning is stronger than `03` states it.
+
+**Also decided:**
+
+- **Unknown query parameters are KEPT, only tracking ones dropped.** `03` §4
+  stage 2 says to strip `utm_*`, `gclid`, fragments and session params, and an
+  obvious over-reading is "strip the query string". That would merge
+  `?variant=75ml` and `?variant=100ml` into one candidate — the same identity
+  error the whole matcher exists to prevent. Surviving parameters are sorted
+  so two orderings of one URL still dedup.
+- **The private-range gate is scoped to candidate URLs and says so in a
+  test.** `05` §2 requires rejecting private ranges; the CIS LLM endpoint is
+  itself RFC1918. `test_the_gate_is_scoped_to_candidates_not_all_outbound_traffic`
+  exists so the interaction is visible at the place someone would be tempted
+  to promote the check into a global outbound guard.
+- **Only IP literals are judged at P7.** A hostname resolving to a private
+  address is P8's problem: DNS at query time would mean resolving every
+  candidate before deciding whether to fetch it, and `05` §2's real
+  requirement is re-validation after each redirect, which needs the client.
+- **`SearchError` is raised, never swallowed into an empty list.** An empty
+  result list is a legitimate answer meaning "no results"; collapsing a
+  network failure into it would silently degrade recall with nothing to find
+  later (`04` §4). The P6a runner turns it into a typed `RowFailure`.
+- **Transport errors are not retried.** A SearxNG that is not running will not
+  start between attempts; three retries only delay the real error. The message
+  names the fix (`docker compose up -d searxng`). 5xx and timeouts are retried
+  with full jitter; 4xx never is.
+- **`SearchQuery`/`SearchResult` are frozen dataclasses, not contracts.**
+  Neither crosses a pipeline stage boundary — what leaves `retrieval/` is
+  `CandidateURL` (`03` §3). Same reasoning as `ClassifierReport` at P5.
+- **The network lives behind an injected `SearchFn`**, which is what makes
+  `04` §6's "zero network calls in tests" structural rather than aspirational:
+  every merge, dedup, cap and ordering rule is tested without constructing the
+  client at all.
+**Affects:** new `specs/retrieval.md`, new `docker-compose.yml`, new
+`config/searxng/settings.yml`, new `config/retrieval.yaml`, new
+`src/nimo/retrieval/` (`queries.py`, `canonical.py`, `config.py`, `search.py`,
+`client.py`), new `tests/retrieval/`. `04-build-standards.md` §1 P7 row.
+No contract changes.
+**Status:** standing — the gate is open. Closing it needs a running SearxNG
+and more than 6 labelled gold rows.
+
+
 ---
 
 # Open questions — resolve with organizers

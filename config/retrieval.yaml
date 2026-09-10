@@ -1,0 +1,46 @@
+# P7 candidate generation — specs/retrieval.md.
+#
+# `04` §9: zero magic numbers in code. Every value a later phase might want to
+# change lives here.
+
+# §6 — "Target 10-20 unique candidates. Cap hard; more costs fetch budget for
+# no gain" (`03` §4 stage 2). 20 is the top of that range: P8 fetches every
+# candidate, so this number multiplies directly into crawl cost.
+max_candidates: 20
+
+# Per-strategy result limit, before merging and the global cap above. Kept
+# below max_candidates so no single strategy can fill the whole budget and
+# starve the others — S5 (verbatim description) is the most likely to return
+# 20 mediocre results and crowd out a barcode-exact hit.
+per_strategy_limit: 8
+
+# Strategy order. Merged results keep the FIRST strategy that produced a URL
+# as their provenance, and rank by (strategy order, rank within strategy) —
+# so a barcode-exact hit outranks a verbatim-text hit regardless of what the
+# engine thought (`specs/retrieval.md` §6).
+#
+# Measured availability (`specs/retrieval.md` §2):
+#   S1/S2  dev  18/412 (4%)   qa 412/412 (100%)   <- the dev/qa asymmetry
+#   S3     dev 225/412        qa 220/412
+#   S4     dev 223/412 (54%)  qa 256/412 (62%)    <- 28 of 50 retailers mapped
+#   S5     dev 412/412        qa 412/412
+strategy_order: [S1, S2, S3, S4, S5]
+
+# SearxNG engines. Pinned rather than "all": `03` §4 stage 2 requires
+# reproducibility, and SearxNG's default engine set changes between releases.
+engines: [google, bing, duckduckgo]
+
+# `04` §6 — timeouts ALWAYS set, both halves. A read timeout with no connect
+# timeout still hangs forever on a black-holed host.
+connect_timeout_s: 5.0
+read_timeout_s: 15.0
+
+# `04` §6 — max 3 retries, exponential backoff with jitter, 5xx/timeout only.
+max_retries: 3
+backoff_base_s: 0.5
+backoff_max_s: 8.0
+
+# Politeness toward the local SearxNG instance, which in turn fans out to
+# upstream engines. Too fast and the upstreams rate-limit the instance, which
+# looks like a retrieval quality problem rather than a throttling one.
+min_interval_s: 0.25

@@ -1,0 +1,40 @@
+# SearxNG instance config for NIMO — specs/retrieval.md §5.
+#
+# The one setting the pipeline actually depends on is `search.formats`
+# including `json`: SearxNG ships with HTML only, and without JSON the client
+# gets a 200 with an HTML body and no `results` key. `_parse_results` raises a
+# message naming this file for exactly that reason.
+
+use_default_settings: true
+
+general:
+  instance_name: "nimo-local"
+  # No public instance, no external contact point — this is a local,
+  # single-user index (`03` §4 stage 2).
+  donation_url: false
+  contact_url: false
+
+search:
+  # REQUIRED. Without `json` here the client cannot parse anything.
+  formats:
+    - html
+    - json
+  safe_search: 0
+  autocomplete: ""
+  default_lang: "en-GB"
+
+server:
+  # Overridden by the compose environment; kept so the file is valid standalone.
+  base_url: "http://localhost:8080/"
+  limiter: false          # single local user; the limiter would throttle us
+  image_proxy: false
+  method: "GET"
+
+ui:
+  default_locale: "en"
+
+outgoing:
+  request_timeout: 10.0
+  max_request_timeout: 15.0
+  pool_connections: 20
+  pool_maxsize: 10

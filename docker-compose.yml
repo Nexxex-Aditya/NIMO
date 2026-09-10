@@ -1,0 +1,39 @@
+# Self-hosted SearxNG for P7 candidate generation.
+#
+# `03` §4 stage 2: "SearxNG, self-hosted (`docker compose`, pinned image tag).
+# Never call public instances — rate limits and non-reproducibility."
+#
+# Bring up with:   docker compose up -d searxng
+# Then set        SEARXNG_BASE_URL=http://localhost:8080   in .env
+#
+# NOT YET RUN on this machine: Docker CLI 29.7.2 and Compose v5.3.1 are
+# installed but the daemon is not running, so P7's Recall@20 gate is deferred
+# rather than measured. `specs/retrieval.md` §1 has the full status.
+
+services:
+  searxng:
+    # Pinned by digest-bearing tag, never `latest` — an upstream image change
+    # would silently alter which engines answer and in what order, which is
+    # exactly the reproducibility problem self-hosting exists to solve.
+    image: searxng/searxng:2025.9.1-9c62a1a3f
+    container_name: nimo-searxng
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config/searxng:/etc/searxng:rw
+    environment:
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      # A single-user local instance. No secret is baked into the repo; if the
+      # image asks for one, generate it into .env (gitignored) — `04` §9.
+    restart: unless-stopped
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "1"
