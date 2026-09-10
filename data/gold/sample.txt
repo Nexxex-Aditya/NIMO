@@ -1,0 +1,56 @@
+# Frozen P4 stratified sample — specs/gold.md.
+# 50 dev row_uids, module-stratified, produced by
+# nimo.gold.stratify_by_module(target=50). Frozen deliberately: the sample
+# must not shift under the labels already written against it. A test asserts
+# this file still equals the sampler's output, so a change to the sampler
+# fails loudly instead of silently re-basing the measurement set.
+dev:0
+dev:1
+dev:7
+dev:24
+dev:9
+dev:32
+dev:42
+dev:2
+dev:14
+dev:28
+dev:122
+dev:112
+dev:233
+dev:47
+dev:45
+dev:97
+dev:4
+dev:17
+dev:96
+dev:312
+dev:13
+dev:58
+dev:37
+dev:68
+dev:341
+dev:146
+dev:54
+dev:3
+dev:8
+dev:11
+dev:26
+dev:10
+dev:33
+dev:64
+dev:36
+dev:20
+dev:66
+dev:155
+dev:241
+dev:286
+dev:349
+dev:143
+dev:193
+dev:391
+dev:268
+dev:171
+dev:355
+dev:92
+dev:89
+dev:152

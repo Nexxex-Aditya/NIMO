@@ -17,8 +17,13 @@ def stratify_by_module(
     modules: list[str],
     target: int,
     per_module_floor: int = 1,
-) -> list[int]:
-    """Return `nan_key`s to label, module-stratified, deterministically.
+) -> list[str]:
+    """Return `row_uid`s to label, module-stratified, deterministically.
+
+    Returns `row_uid`, **not** `nan_key`: `NAN_KEY` is not unique (385 distinct
+    over 412 `dev` rows) and collides across genuinely different products
+    (`01` §14), so a `nan_key`-keyed selection silently drops rows. Caught by
+    `test_sampler_never_returns_more_than_available`.
 
     `rows` and `modules` are positionally aligned — `modules[i]` is the
     `MODULE` of `rows[i]`, read from the `dev` sheet by the caller (the
@@ -34,18 +39,18 @@ def stratify_by_module(
             f"and {len(modules)} module labels"
         )
 
-    by_module: dict[str, list[int]] = defaultdict(list)
+    by_module: dict[str, list[str]] = defaultdict(list)
     for row, module in zip(rows, modules, strict=True):
-        by_module[module].append(row.nan_key)
+        by_module[module].append(row.row_uid)
     for keys in by_module.values():
-        keys.sort()
+        keys.sort(key=lambda uid: int(uid.split(":")[1]))
 
     # Descending row count, then module name — never set iteration order,
     # which `04` §5 forbids relying on.
     ordered = sorted(by_module, key=lambda module: (-len(by_module[module]), module))
 
     taken: dict[str, int] = dict.fromkeys(ordered, 0)
-    selected: list[int] = []
+    selected: list[str] = []
 
     for module in ordered:
         for _ in range(min(per_module_floor, len(by_module[module]))):
@@ -69,7 +74,7 @@ def stratify_by_module(
     return selected
 
 
-def modules_covered(nan_keys: list[int], rows: list[RawRow], modules: list[str]) -> set[str]:
+def modules_covered(row_uids: list[str], rows: list[RawRow], modules: list[str]) -> set[str]:
     """Which modules a given selection actually covers."""
-    module_by_key = {row.nan_key: module for row, module in zip(rows, modules, strict=True)}
-    return {module_by_key[key] for key in nan_keys if key in module_by_key}
+    module_by_uid = {row.row_uid: module for row, module in zip(rows, modules, strict=True)}
+    return {module_by_uid[uid] for uid in row_uids if uid in module_by_uid}

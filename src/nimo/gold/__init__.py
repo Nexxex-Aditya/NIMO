@@ -6,12 +6,22 @@ ever be scored against.
 """
 
 from nimo.gold.sample import modules_covered, stratify_by_module
-from nimo.gold.store import GOLD_PATH, GoldSetError, labelled_correct, load_gold, write_gold
+from nimo.gold.store import (
+    GOLD_PATH,
+    SAMPLE_PATH,
+    GoldSetError,
+    labelled_correct,
+    load_frozen_sample,
+    load_gold,
+    write_gold,
+)
 
 __all__ = [
     "GOLD_PATH",
+    "SAMPLE_PATH",
     "GoldSetError",
     "labelled_correct",
+    "load_frozen_sample",
     "load_gold",
     "modules_covered",
     "stratify_by_module",

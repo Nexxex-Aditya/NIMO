@@ -64,11 +64,23 @@ Selection rule, deterministic and committed:
 3. Distribute the remaining slots over modules by descending row count,
    round-robin, so the big modules get proportionally more without starving
    the tail.
-4. Within a module, order by `nan_key` ascending and take from the front.
+4. Within a module, order by source position (`row_uid`) ascending and take
+   from the front. Ordering by `nan_key` would be wrong twice over — it is
+   not unique, so a `nan_key`-keyed selection silently drops rows, and its
+   numeric order is meaningless where the value is a rounding artifact
+   (`01` §14).
 
 Deterministic in the `04` §5 sense: same workbook in, same sample out, no
 randomness at all. The sampler is a pure function of the loaded rows and is
 tested for stability.
+
+**The sample is frozen to `data/gold/sample.txt`, not recomputed on demand.**
+This was learned the hard way during P4: the sampler originally selected by
+`nan_key`, that turned out to be non-unique (`01` §14), and fixing it changed
+which 50 rows were chosen — *after* labels had been written against the old
+selection. A recomputed sample can silently re-base the measurement set under
+existing labels, with no error. A test asserts the frozen file still equals
+the sampler's output, so any future sampler change fails loudly instead.
 
 `dev` only. `qa` has no `MODULE`, so it cannot be stratified, and `dev` is
 where the module labels that make stratification meaningful live.
@@ -117,7 +129,38 @@ For each sampled row, using its `ProductQuery` (P3 output — `brand`,
    skipping it (`04` §4).
 8. `make check` green (or its four commands, `04` §11).
 
+9. The frozen sample (`data/gold/sample.txt`) still equals the sampler's
+   output, and covers every module present in `dev` (27/27).
+
 **Explicitly not a gate: reaching 50 entries.** The number is a target from
 `03` §6, not a correctness property, and inventing rows to reach it would
 defeat the phase. The committed count and the remaining unlabelled sample
 are both reported.
+
+## Coverage as committed
+
+**6 of 50 sampled rows are labelled: 5 `correct`, 1 `ambiguous`.** Every one
+was searched for, opened in a browser and inspected; the `evidence` field on
+each says what was confirmed. The remaining 44 are unlabelled — not
+`no_page_found`, which would be a claim I have not earned by searching, but
+simply not yet done.
+
+This is a deliberately partial artifact, and `specs/gold.md`'s own rule is
+why: at ~4 minutes and several searches per row, inventing the other 44 to
+hit the round number in `03` §6 would have produced a measurement instrument
+that silently miscalibrates P9's precision@1 and P10's threshold fit. A
+6-entry honest set plus a frozen 50-row sample is resumable in one sitting;
+a 50-entry invented one is worse than nothing and undetectable.
+
+Two of the six (`dev:205`, `dev:410`) were labelled before the sample was
+frozen and are outside the current 50 — named explicitly in the tests rather
+than quietly excused.
+
+Worth recording for whoever continues this: `tesco.com` returned a
+bot-protection interstitial rather than the product page, so a row whose
+correct answer is almost certainly a Tesco URL (`dev:193`, Diamond Whites
+Black Edition 32g — the search result title matches exactly) could not be
+confirmed by opening it and was left unlabelled rather than accepted on the
+strength of a search snippet. That is a live instance of `05` §5's
+"aggregate domain block" reaching the *labelling* process, not just the
+fetcher, and it bears on Q6.

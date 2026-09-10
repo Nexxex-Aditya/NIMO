@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from nimo.contracts import GoldUrl
 
 GOLD_PATH = Path(__file__).resolve().parents[3] / "data" / "gold" / "urls.jsonl"
+SAMPLE_PATH = Path(__file__).resolve().parents[3] / "data" / "gold" / "sample.txt"
 
 _VALID_SCHEMES = ("http://", "https://")
 
@@ -85,3 +86,20 @@ def write_gold(entries: list[GoldUrl], path: Path = GOLD_PATH) -> None:
 def labelled_correct(entries: list[GoldUrl]) -> list[GoldUrl]:
     """The subset that carries a verified URL — what L3 precision scores on."""
     return [entry for entry in entries if entry.label == "correct"]
+
+
+def load_frozen_sample(path: Path = SAMPLE_PATH) -> list[str]:
+    """The committed stratified sample — `specs/gold.md`.
+
+    Frozen rather than recomputed on demand: labels are written against a
+    specific sample, and a sampler change that silently re-bases it would
+    invalidate them without any error. A test asserts this file still equals
+    the sampler's output.
+    """
+    if not path.exists():
+        raise GoldSetError(f"{path} not found — P4 produces it (specs/gold.md)")
+    return [
+        line.strip()
+        for line in path.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    ]
