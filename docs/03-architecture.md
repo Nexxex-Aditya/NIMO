@@ -329,6 +329,13 @@ class GoldUrl:                     # P4 — one hand-verified URL label, §6 L3/
     evidence: str                  # what was actually checked on the page — never "looks right"
     verified_on: str               # ISO date; audit trail for a hand-produced artifact
 
+class GoldPair:                    # P6 — one hand-adjudicated same/different pair, §1a
+    left_row_uid: str              # the two rows are always both `dev`; ordering is (lower, higher) by source index
+    right_row_uid: str
+    label: Literal["same","different","ambiguous"]   # "ambiguous" is a real answer — see specs/registry.md
+    evidence: str                  # what was actually compared — never "looks similar"
+    verified_on: str               # ISO date; audit trail for a hand-produced artifact
+
 class BlockKey:                    # §1a — blocking, computed at stage [1]
     key: str                       # clean barcode, or fingerprint(brand,size,count)
     method: Literal["exact_gtin", "fingerprint"]
@@ -515,11 +522,29 @@ and every downstream feature (including the stage-1 blocking key) depends on it.
 
 Full rationale in §1a. Mechanics:
 
-1. **Block key computation.**
-   - `barcode` present and not corrupt → `BlockKey(key=barcode, method="exact_gtin")`.
-   - Else → `BlockKey(key=fingerprint(brand, size_ml_equiv, size_g_equiv, count), method="fingerprint")`,
+1. **Block key computation. A row gets *every* key it can, not one.**
+   - `barcode` present and not corrupt → `BlockKey(key=barcode, method="exact_gtin")`, used by Tier 0.
+   - **In addition, whenever a size was parsed** →
+     `BlockKey(key=fingerprint(brand, size_ml_equiv, size_g_equiv, count), method="fingerprint")`,
      a deterministic hash of normalized identity fields from `DescTokens`. Not
-     free text, and not module — module isn't known yet on a first pass.
+     free text, and not module — module isn't known yet on a first pass. A row
+     with no parsed size gets no fingerprint key and misses to Tier 2;
+     blocking it on `brand + count` alone would be over-broad blocking, the
+     failure §1a is most exposed to.
+
+   **This said "clean barcode when present, *else* a fingerprint" until P6
+   measured what that costs.** `qa` carries a clean barcode on 412 of 412
+   rows, so under an either/or rule every `qa` row takes the GTIN branch, **no
+   `qa` row ever receives a fingerprint key, and Tier 1 is unreachable for the
+   entire evaluation set** — while 0 of those GTINs appear in `dev`, so Tier 0
+   misses all 412 as well. The cascade would have degraded to "always Tier 2"
+   on the only sheet that gets submitted, and the 61.8% block hit rate this
+   section's gate reports would have been unreachable in the real pipeline.
+   A Tier-0 miss means nobody has resolved *that GTIN* before, not that the
+   product is new — the same product may sit in the registry under a different
+   retailer's row whose barcode was absent or corrupt — so the fingerprint key
+   has to stay available as the Tier-1 fallback, which is what step 3's "no
+   exact hit → ... within the same block" always implied.
 2. **Tier 0 — exact.** Registry lookup by the barcode key. A hit means this
    GTIN has been resolved before, in this run or a prior persisted one.
    Confidence carries over from the stored entity. **Skip stages 2–4**; proceed
@@ -528,7 +553,20 @@ Full rationale in §1a. Mechanics:
    identity embedding (brand + variant terms + size + count — not page
    content) against other entities in the same block. Hit above `τ_ann` →
    short-circuit the same way as tier 0, with a confidence discount recorded on
-   `Selection.confidence`.
+   `Selection.confidence`. Reached on a Tier-0 miss **including for rows that
+   carried a clean GTIN**, per step 1.
+
+   Two rules P6 measured into place. **A row with no variant terms can never
+   produce a Tier-1 hit**: within a block, brand, size and count are equal by
+   construction, so they *are* the block key and merging on them is merging on
+   zero evidence (`05` §4). `sensodyne 75ml` is a real `dev` row. And **`τ_ann`
+   is not a separating threshold** — measured over 20 hand-adjudicated blocked
+   pairs, no similarity function separates same-product from different-product
+   on this data, because pairs like Sensodyne Pronamel Intensive Repair *Extra
+   Fresh* versus its *Whitening* variant differ by two words in a fifteen-word
+   description and genuinely are near-identical text. `τ_ann` is a
+   precision-first cut that accepts a known recall loss, derived in
+   `config/thresholds.yaml`. `specs/registry.md` §4 has the full measurement.
 4. **Miss.** No hit at either tier → proceed to stage 2. This is the only path
    that touches the network or an LLM for identity resolution.
 

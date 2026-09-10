@@ -9,20 +9,15 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P6 (registry & blocking) — NOT STARTED
-Last completed milestone: P5 (module baseline), gate passed.
-Next milestone: P6. **No spec file exists yet** — write `specs/registry.md`
-first, then implement. Gate (`04` §1): Tier-1 block hit rate **and**
-within-block precision on a content fingerprint
-(`brand + size_ml_equiv + size_g_equiv + count`). Measured ceiling for hit
-rate: 136/220 sized qa rows. Authority: `03` §1a, `03` §4 stage `[1]`.
-
-After P6 comes **P6a (batch runner & orchestration)**, added to `04` §1 this
-run — `src/nimo/run/` is still 0 bytes and four separate requirements across
-`03`/`04` depend on it. Its gate is behavioural: 412 rows driven through the
-stages built so far, a deliberately failing row recorded as a typed
-`RowFailure` that neither aborts the run nor writes a partial output row, and
-kill-and-restart resuming without redoing completed rows.
+Phase: P6a (batch runner & orchestration) — NOT STARTED
+Last completed milestone: P6 (registry & blocking), gate passed.
+Next milestone: P6a. **No spec file exists yet** — write `specs/run.md`
+first, then implement. `src/nimo/run/` is still 0 bytes while four separate
+requirements across `03`/`04` depend on it. Its gate is behavioural: 412 rows
+driven through the stages built so far, a deliberately failing row recorded as
+a typed `RowFailure` that neither aborts the run nor writes a partial output
+row (`04` §4's two hardest rules), and kill-and-restart resuming without
+redoing completed rows. Authority: `04` §1 P6a, `04` §4, `03` §2, `03` §5.
 
 ## Carried-forward work, explicitly not done
 
@@ -45,16 +40,16 @@ kill-and-restart resuming without redoing completed rows.
 
 ## Verified state (re-check on resume, don't trust blindly)
 
-Last `make check`: PASS as of the P5 milestone commit. `make` is absent on
+Last `make check`: PASS as of the P6 milestone commit. `make` is absent on
 this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (313 passed)
+  uv run pytest                          -> EXIT 0  (359 passed)
 
 ## Do NOT re-do
 
-- P0–P5: done, gates verified by execution, committed.
+- P0–P6: done, gates verified by execution, committed.
 - **Row identity is `row_uid` (`"dev:0"`), never `NAN_KEY`/`ITEM_CODE`.**
   `01` §14: all three columns carry the same rounding corruption. Never key
   an artifact, a cache entry, a registry member or a gold label on
@@ -68,6 +63,19 @@ this machine; ran its four commands directly per `04` §11:
   vs Aquafresh Intense Clean, both 500ml). Tier-1 similarity inside the
   block is what discriminates, and P6 reports block hit rate *and*
   within-block precision for exactly this reason.
+- **P6: a row gets BOTH a GTIN block key and a fingerprint key**, never one
+  or the other. `qa` has a clean barcode on 412/412 rows, so the original
+  either/or rule in `03` §4 stage 1 made Tier 1 unreachable for the whole
+  evaluation set while Tier 0 missed all 412. Don't "simplify" it back.
+- **P6: no similarity function separates same-product from different-product
+  on this data.** Measured over 20 hand-adjudicated pairs; a true positive
+  (0.629) scores below a true negative (0.723) for every candidate tried, and
+  `test_a_true_positive_scores_below_a_true_negative` pins that inversion on
+  purpose. `τ_ann=0.75` is a precision-first cut with a known recall loss, not
+  a separating threshold — don't lower it to "catch more".
+- **P6: Tier 0 fires 0/412 in a single pass over this dataset** (0 shared
+  dev/qa barcodes, 0 duplicates within qa) and 412/412 on a re-run. That is
+  the warm-start property working, not a bug. Demo it as a re-run.
 - **P5's classifier reads `desc_clean` only — BRAND is deliberately
   excluded**, measured at 7.5 points overall / 3.5 macro worse with it.
   `04` §1's gate wording was corrected to match the measurement. Don't

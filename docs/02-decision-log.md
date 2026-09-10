@@ -961,6 +961,168 @@ wording corrected, status done). `src/nimo/loader/dataset.py`
 **Status:** standing
 
 
+## 2026-09-10 — P6 registry: the block key was an either/or and shouldn't have been; no similarity separates same from different; Tier 0 is structurally dead on this data
+**Decision:** `specs/registry.md` written and implemented —
+`src/nimo/registry/` with blocking, Tier-0/Tier-1 lookup, a deterministic
+Union-Find match graph, and an audit-logged persistent store. `GoldPair`
+added to `03` §3 (18 contracts). `config/thresholds.yaml`'s `tau_ann` and
+`tau_merge` replaced with derived values. **Three findings, and the first is a
+defect in `03` itself that would have silently disabled the cascade on the
+only sheet we submit.**
+
+**1. `03` §4 stage 1's block key was "clean barcode when present, *else* a
+fingerprint". The `else` is wrong, and the cost is total.** `qa` carries a
+clean barcode on **412 of 412** rows. Under an either/or rule every `qa` row
+takes the GTIN branch, so **no `qa` row ever receives a fingerprint key and
+Tier 1 is unreachable for the entire evaluation set** — while **0 of those
+412 GTINs appear in `dev`**, so Tier 0 misses all 412 as well. The compute
+cascade would have degraded to "always Tier 2" on `qa`, and the 61.8% block
+hit rate that `01` §14, `03` §1a and `04` §1's P6 gate all cite would have
+been unreachable in the real pipeline — measurable in a scratch script,
+impossible in the code.
+
+Found by running the shipped implementation against the real sheets and
+getting `qa fingerprint-keyed rows = 0` where the scratch measurement said
+220. Worth noting how: the scratch script fingerprinted every sized row
+regardless of barcode, and the implementation followed `03` faithfully. **The
+spec and the measurement disagreed, and the measurement was measuring
+something the spec could not do.** This is the third time a claim in `03` §1a
+has had to be rebuilt (Tier-0→Tier-1, then the void `ITEM_CODE` overlap, now
+this), and the same root cause each time: a number produced by a script whose
+logic did not match the pipeline's.
+
+Fixed by splitting into `gtin_block_key` and `fingerprint_block_key`, with
+`block_keys` returning every key a row can be blocked under. A Tier-0 miss
+means nobody has resolved *that GTIN* before, not that the product is new —
+the same product may sit in the registry under a different retailer's row
+whose barcode was absent or corrupt. That is what stage 1 step 3's "no exact
+hit → ... within the same block" always implied. `03` §4 stage 1 corrected.
+
+**2. No similarity function separates same-product from different-product on
+this data. This is the phase's central finding and it is negative.**
+
+`03` §4 stage 1 requires `tau_ann` to be *tuned, not hand-picked*, and there
+was nothing to tune it against — the P4 URL gold set answers a different
+question. So `data/gold/pairs.jsonl` was built the same way P4's was: 20
+blocked `dev` pairs read in full and hand-adjudicated with written evidence
+(4 `same`, 2 `ambiguous`, 14 `different`). `ambiguous` is a real answer;
+recording a guess would corrupt the instrument.
+
+Three candidate similarities were measured against it. **Every one has a true
+positive scoring below a true negative:**
+
+| pair | variant Jaccard | char-4gram/variants | char-4gram/desc |
+|---|---|---|---|
+| `dev:2`/`dev:36` — **same** | 0.250 | 0.629 | 0.733 |
+| `dev:107`/`dev:147` — **different** | 0.500 | 0.723 | 0.777 |
+
+Two rows explain it, and both are worth knowing:
+
+- `dev:2`/`dev:36` are `macleans confidence mouthspray 15ml` and `macleans
+  confidence mouth spray 15ml mcleans 15.00 ml` — the same product. Jaccard
+  scores 0.250 purely because `mouthspray` and `mouth spray` tokenize
+  differently. Char n-grams repair most of that (0.629), the same
+  tokenization-robustness that bought P5 eight points.
+- `dev:107`/`dev:147` are Sensodyne Pronamel Intensive Enamel Repair *Extra
+  Fresh* and the *Whitening* variant in *Cool Mint* — genuinely different
+  SKUs differing by two words in a fifteen-word description. **No
+  bag-of-features similarity can rank this pair low**, because the pair
+  really is textually near-identical; the discriminating token (`whitening`)
+  carries hard identity weight a similarity measure has no way to know about.
+
+That is the same lesson `03` §4 stage 4 already encodes by putting hard rules
+(GTIN equality, size, count) *above* the weighted score — now demonstrated on
+real data rather than asserted.
+
+**`tau_ann = 0.75`, derived and precision-first.** With no separating
+threshold available, the choice is which error to take, and `03` §1a is
+unambiguous: a wrong merge poisons every future row that blocks against it, a
+missed merge costs one row's retrieval budget. Using char-4-gram cosine over
+variant terms (best of the three — its worst true positive is 0.629 against
+Jaccard's 0.250): highest proven-different pair 0.723, lowest proven-same pair
+above it 0.787, `tau_ann` = the 0.755 midpoint, rounded to 0.75. On the
+labelled set that admits **3 of 4 true positives and 0 of 14 true negatives**;
+across all 379 blocked `dev` pairs it fires on 4 (the fourth being an
+`ambiguous`-labelled pair, not a known false merge).
+
+**Two caveats that belong in the report, not buried here.** The window is
+**0.064 wide and rests on four positive examples** — one more labelled pair
+could close it, and if it does the answer is a stricter `tau_ann` and more
+Tier-2 traffic, never a looser one. And it buys that precision by giving up
+`dev:2`/`dev:36` at 0.629, a real duplicate Tier 1 will now miss forever.
+Intended trade, recorded rather than discovered later.
+
+`tau_merge = 0.95`, and the `tau_merge > tau_ann` invariant `03` §4 stage 4
+requires is **asserted at config load**, not merely documented — inverted, the
+registry accumulates merges no later lookup can distinguish from confirmed
+ones (`05` §4).
+
+**3. Tier 0 has zero opportunities to fire anywhere in this dataset in a
+single pass.** Not rarely — zero: 0 barcodes shared between `dev` and `qa`,
+and `qa`'s 412 clean barcodes are 412 distinct values with no duplicates.
+This is not a reason to delete Tier 0, and the distinction is the interesting
+part: **within one run it cannot fire; across runs it fires on everything.**
+`03` §5's warm-start property persists the registry to `data/registry/`, so a
+second pass over `qa` hits Tier 0 on 412/412 and skips stages 2–4 entirely.
+So the honest demonstration of `03` §1a's efficiency claim on this data is a
+**re-run**, not a single pass — and in production, where a catalog is
+re-audited, the re-run case is the normal case. Worth saying plainly at demo
+time rather than showing a tier histogram with a zero in it and hoping nobody
+asks.
+
+**Also decided, smaller but load-bearing:**
+
+- **A block is overwhelmingly not one product, and now quantified.** The
+  `('SENSODYNE', 75.0, None, 1)` block holds **14 rows** — daily care gel,
+  pronamel active enamel shield, sensitivity & gum whitening, junior new
+  groove, clinical repair, and so on. Of 379 blocked `dev` pairs, roughly 4
+  are genuinely the same product. `01` §14 and `03` §1a both already said the
+  fingerprint is a blocking key and not a match key; the measured magnitude is
+  far larger than either implies, and it is why Tier-1 similarity is
+  load-bearing rather than a refinement.
+- **A `MODULE` cross-check is a weak instrument here and was not used as the
+  headline.** Only 5 of 379 blocked pairs cross a module boundary, suggesting
+  98.7% precision — but `MODULE` can only ever prove a pair *different*, and
+  the canonical bad merge from `01` §14 (Aquafresh Extra Care vs Intense
+  Clean) is same-module. Hand adjudication was the only honest route.
+- **A row with no variant terms can never produce a Tier-1 hit**, checked
+  before any arithmetic runs rather than left to emerge from a zero vector.
+  Within a block, brand/size/count are equal by construction — they *are* the
+  block key — so merging on them is merging on zero evidence. `sensodyne 75ml`
+  is a real `dev` row (`dev:94`).
+- **Union-Find representatives are the smallest member by sort order**, never
+  insertion order. Union-by-size alone makes the representative depend on the
+  order unions were applied, and a registry whose entity membership depends on
+  row ordering cannot produce a byte-identical re-run (`04` §5).
+- **`entity_id` is `sha256` of the block key, method-prefixed** (`gtin:` /
+  `fp:`), never a uuid — `03` §3 requires reproducibility, and without it the
+  registry cannot warm-start across runs, which is the only reason it is
+  persisted.
+- **Every registry write is audit-logged append-only** (`05` §4), recording
+  `row_uid`s and never `nan_key`. `write_entities` refuses a member that has
+  no `:` in it, because a bare integer is a `nan_key` — the bug this project
+  has already introduced twice, and which here would serve one product's
+  resolved answer for a different product forever.
+- **The write-back *decision* is deliberately not built.** `03` §4 stage 4
+  gates it on a hard GTIN accept or `calibrated_prob >= tau_merge`, both P9/P10
+  artifacts. P6 ships the mechanism and the thresholds; inventing a confidence
+  signal to gate it on now would be building the wrong thing carefully.
+- **A test asserts a limitation on purpose.**
+  `test_a_true_positive_scores_below_a_true_negative` pins the
+  0.629 < 0.723 inversion. If it ever disappears that is a real change in the
+  data or the features and `tau_ann` must be re-derived, so it fails loudly
+  rather than quietly becoming true.
+**Affects:** new `specs/registry.md`, new `data/gold/pairs.jsonl`, new
+`src/nimo/registry/` (`block.py`, `similarity.py`, `unionfind.py`, `store.py`,
+`config.py`, `lookup.py`, `pairs.py`), new `tests/registry/`.
+`config/thresholds.yaml` (derived `tau_ann`/`tau_merge` with the derivation in
+comments). `03-architecture.md` §3 (`GoldPair`), §4 stage 1 steps 1 and 3
+(rewritten — the either/or defect and the two Tier-1 rules).
+`src/nimo/contracts.py`, `tests/test_contracts.py` (18 models),
+`specs/contracts.md`. `04-build-standards.md` §1 P6 row.
+**Status:** standing
+
+
 ---
 
 # Open questions — resolve with organizers

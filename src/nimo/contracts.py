@@ -178,6 +178,19 @@ class GoldUrl(BaseModel):  # P4 — one hand-verified URL label, `03` §6 L3/L4
     verified_on: str  # ISO date; audit trail for a hand-produced artifact
 
 
+class GoldPair(BaseModel):  # P6 — one hand-adjudicated same/different pair, `03` §1a
+    model_config = ConfigDict(frozen=True)
+
+    # both rows are always `dev`; ordering is (lower, higher) by source index
+    left_row_uid: str
+    right_row_uid: str
+    # "ambiguous" is a real answer, not a placeholder: two retailer descriptions
+    # can be genuinely undecidable without a product page (`specs/registry.md`).
+    label: Literal["same", "different", "ambiguous"]
+    evidence: str  # what was actually compared — never "looks similar"
+    verified_on: str  # ISO date; audit trail for a hand-produced artifact
+
+
 class BlockKey(BaseModel):  # §1a — blocking, computed at stage [1]
     model_config = ConfigDict(frozen=True)
 

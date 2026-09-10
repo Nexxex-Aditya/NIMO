@@ -1,6 +1,47 @@
-# All values below are placeholders. Tune against the gold set (P4) —
-# never hand-pick. See 03-architecture.md §1a, §4.
-tau_ann: 0.0          # TODO tune at P6
-tau_merge: 0.0        # TODO tune at P9 — must exceed general acceptance threshold
-tau_abstain: 0.0      # TODO tune at P10 — see [PROVISIONAL - Q3]
+# Tunable thresholds. `04` §9: zero magic numbers in code.
+#
+# tau_ann and tau_merge were derived at P6 from `data/gold/pairs.jsonl` — 20
+# blocked dev pairs read in full and hand-adjudicated. The derivation is in
+# `specs/registry.md` §4d and it is not a comfortable one, so it is repeated
+# here where the value is actually read:
+#
+#   No similarity function separates same-product from different-product on
+#   this data. Measured over three candidates, every one has a true positive
+#   scoring below a true negative. The irreducible case is dev:107/dev:147 —
+#   Sensodyne Pronamel Intensive Enamel Repair Extra Fresh vs the Whitening
+#   variant in Cool Mint: genuinely different SKUs differing by two words in
+#   a fifteen-word description, scoring 0.723. No bag-of-features measure can
+#   rank that pair low, because the pair really is textually near-identical.
+#
+#   So the choice is which error to take. `03` §1a is unambiguous: a wrong
+#   merge poisons every future row that blocks against it; a missed merge
+#   costs one row's retrieval budget. Tuned for precision.
+#
+#   highest proven-DIFFERENT pair          0.723
+#   lowest proven-SAME pair above it       0.787
+#   tau_ann = midpoint of that window      0.755 -> 0.75
+#
+# On the labelled set: 3 of 4 true positives admitted, 0 of 14 true negatives.
+# Across all 379 blocked dev pairs it fires on 3.
+#
+# TWO CAVEATS, deliberately here and not only in the spec:
+#   1. The window is 0.064 wide and rests on FOUR positive examples. One more
+#      labelled pair could close it. If it does, the answer is a stricter
+#      tau_ann and more Tier-2 traffic — never a looser one.
+#   2. This buys precision by giving up dev:2/dev:36 at 0.629 (macleans
+#      confidence "mouthspray" vs "mouth spray" — a real duplicate). Tier 1
+#      will miss it forever. That is the intended trade.
+tau_ann: 0.75
+
+# Must ALWAYS exceed tau_ann — asserted at config load, not merely documented.
+# `03` §4 stage 4 requires it and `05` §4 explains the consequence of getting
+# it backwards: a merge written at lower confidence than a lookup will accept
+# poisons the registry with entries no later lookup can distinguish.
+#
+# 0.95 is deliberately strict: only near-identical descriptions may be written
+# back as a confirmed same-entity merge. P9 tunes this properly against the P4
+# gold set once calibrated_prob exists; until then, strict beats plausible.
+tau_merge: 0.95
+
+tau_abstain: 0.0          # TODO tune at P10 — see [PROVISIONAL - Q3]
 runner_up_gap_threshold: 0.0   # TODO tune at P9/P11

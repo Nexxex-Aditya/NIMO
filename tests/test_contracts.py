@@ -23,6 +23,7 @@ from nimo.contracts import (
     CharacteristicGuideline,
     CharacteristicRule,
     DescTokens,
+    GoldPair,
     GoldUrl,
     MatchFeatures,
     ModulePrediction,
@@ -154,6 +155,14 @@ GOLD_URL = GoldUrl(
     verified_on="2026-09-10",
 )
 
+GOLD_PAIR = GoldPair(
+    left_row_uid="dev:140",
+    right_row_uid="dev:386",
+    label="same",
+    evidence="Colgate Total Plus Whitening pump 100ml on both sides.",
+    verified_on="2026-09-10",
+)
+
 BLOCK_KEY = BlockKey(key="5014697056627", method="exact_gtin")
 
 REGISTRY_LOOKUP_RESULT = RegistryLookupResult(
@@ -257,6 +266,7 @@ ALL_MODELS: list[tuple[str, BaseModel]] = [
     ("RowFailure", ROW_FAILURE),
     ("RunSummary", RUN_SUMMARY),
     ("GoldUrl", GOLD_URL),
+    ("GoldPair", GOLD_PAIR),
     ("BlockKey", BLOCK_KEY),
     ("RegistryLookupResult", REGISTRY_LOOKUP_RESULT),
     ("CandidateURL", CANDIDATE_URL),
@@ -296,7 +306,7 @@ QA_HEADER: list[str] = [
 
 def test_every_contract_model_is_covered() -> None:
     """Guards the parametrized list itself against a silently-dropped model."""
-    assert len(ALL_MODELS) == 17
+    assert len(ALL_MODELS) == 18
 
 
 @pytest.mark.parametrize("name,instance", ALL_MODELS, ids=[n for n, _ in ALL_MODELS])
@@ -453,7 +463,7 @@ def test_contracts_match_architecture_section_3_field_for_field() -> None:
     `contracts.py` to match — do not relax the test.
     """
     spec = _parse_architecture_section_3()
-    assert len(spec) == 17, f"expected 17 classes in `03` §3, parsed {len(spec)}"
+    assert len(spec) == 18, f"expected 18 classes in `03` §3, parsed {len(spec)}"
     for class_name, fields in spec.items():
         model = getattr(contracts_module, class_name, None)
         assert model is not None, f"`03` §3 declares {class_name}; contracts.py has no such model"
