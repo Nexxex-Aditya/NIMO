@@ -402,6 +402,42 @@ section, "Repo conventions" (spec authorship no longer exclusively
 web-side), "Working agreement" (both changed bullets rewritten).
 **Status:** standing
 
+## 2026-09-10 — `CandidateEvidence`'s two `dict` fields typed `dict[str, Any]`, verified against both alternatives
+**Decision:** `CandidateEvidence.jsonld_product` becomes
+`dict[str, Any] | None` and `.og` becomes `dict[str, Any]`, replacing the bare
+`dict` both carried in `03` §3. These are the only `Any` annotations in
+`contracts.py`, taken under `04` §3's explicit allowance for `Any` at a
+documented boundary, and the boundary is now documented in `03` §3 itself.
+**Why:** bare `dict` does not survive `mypy --strict` — reproduced in
+isolation before deciding anything: `Missing type arguments for generic type
+"dict"  [type-arg]`, twice, exit 1. Since `04` §11 makes `mypy --strict`
+clean a Definition-of-Done item on every phase, `03` §3's literal content and
+`04`'s standards were in direct conflict and one had to move. Two candidate
+replacements were then tested against real pydantic 2.13 rather than reasoned
+about: (1) both `dict[str, Any]` and `dict[str, object]` round-trip a
+realistically nested JSON-LD payload — nested objects, arrays, floats and
+`null` all survive `model_dump_json()` → `model_validate_json()` with types
+intact and `==` equality holding, so correctness did not separate them;
+(2) what separated them was downstream ergonomics under `mypy --strict` —
+`dict[str, object]` fails on `jsonld_product["brand"]["name"]` with
+`Value of type "object" is not indexable  [index]`, and that nested access is
+JSON-LD's actual shape (`brand.name`, `offers[0].price` both appear in real
+schema.org Product markup). Choosing `object` would therefore have forced a
+cast or a suppression at every read site in P8 and P9 — trading one honest,
+documented boundary annotation for scattered per-line suppressions, which is
+precisely the anti-pattern `04` §3 and §12 name. Rejected on that basis, not
+on taste. `Any` is contained: it appears on exactly two fields, both holding
+third-party markup whose schema we do not control and cannot pin.
+**Affects:** `03-architecture.md` §3 (both field types, plus a new paragraph
+recording the rationale and the measurements). `specs/contracts.md` Pydantic
+conventions (new bullet, with an explicit "don't "fix" this in either
+direction" note so a later reader doesn't re-litigate it). `src/nimo/contracts.py`.
+`tests/test_contracts.py` — `test_nested_jsonld_survives_round_trip_with_types_intact`
+exercises exactly the nested access that motivated the choice, so if anyone
+does tighten it to `object` later, a test fails rather than a type-checker
+run somewhere else going quiet.
+**Status:** standing
+
 ---
 
 # Open questions — resolve with organizers

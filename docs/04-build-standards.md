@@ -23,7 +23,7 @@ phase's final code. Values: `not started` | `in progress` | `done`.
 | # | Phase | Deliverable | Gate | Status |
 |---|---|---|---|---|
 | P0 | Scaffold | Repo layout, deps, config, logging, CI | `make check` green on empty repo | done |
-| P1 | Contracts | `contracts.py` — every model in `03` §3, no logic | Models instantiate; round-trip to JSON | not started |
+| P1 | Contracts | `contracts.py` — every model in `03` §3, no logic | Models instantiate; round-trip to JSON | done |
 | P2 | Loader | Dataset ingest, all 7 acceptance criteria in `01` §10 | Corruption counts match `01` §3 exactly | not started |
 | P3 | Normalizer | `RETAILER_DESC` → `DescTokens` | 30 hand-written cases from real dev rows pass | not started |
 | P4 | **Gold set** | ~50 hand-labelled URLs, stratified by module | Committed as `data/gold/urls.jsonl` | not started |

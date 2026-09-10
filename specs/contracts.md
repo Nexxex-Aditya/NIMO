@@ -52,6 +52,12 @@ dependency order for writing code without forward references.)
   e.g. `fetch_status: Literal["ok","http_error","timeout","blocked","parse_error"]`
   on `CandidateEvidence`. Do not widen any of these to plain `str`; the whole
   point is that invalid values fail at construction, not downstream.
+- **`CandidateEvidence.jsonld_product` and `.og` are `dict[str, Any]`** — the
+  only `Any` in the file, and a deliberate one (`04` §3's documented-boundary
+  allowance). `03` §3 carries the full rationale and the measurements behind
+  it. Do not "tighten" these to `dict[str, object]`: it was tested and breaks
+  nested access, which is the shape real JSON-LD has. Do not leave them as
+  bare `dict` either: that fails `mypy --strict`.
 - `datetime` fields (`CandidateEvidence.fetched_at`,
   `CanonicalEntity.created_at`/`updated_at`) use `datetime.datetime`, timezone
   aware. Do not default to `datetime.now()` inside a model — `04` §5's

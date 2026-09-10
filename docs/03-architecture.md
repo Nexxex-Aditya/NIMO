@@ -312,9 +312,9 @@ class CandidateEvidence:
     fetched_at: datetime
     content_hash: str
     title: str | None
-    jsonld_product: dict | None    # schema.org/Product if present
+    jsonld_product: dict[str, Any] | None  # schema.org/Product if present — see the Any note below
     gtin: str | None               # from JSON-LD/microdata — highest value
-    og: dict
+    og: dict[str, Any]             # OpenGraph tags — same Any note
     breadcrumbs: list[str]
     body_text: str                 # boilerplate-stripped
     image_urls: list[str]
@@ -376,6 +376,20 @@ class OutputRow:                   # serializes to qa header exactly, in order
     # empty string, never "N/A", never "NOT APPLICABLE" as a literal value.
     # The assembler (`03` §4 stage 8) writes None → an empty cell, nothing else.
 ```
+
+**The two `dict[str, Any]` fields on `CandidateEvidence` — the one sanctioned
+`Any` in the contracts.** `04` §3 allows `Any` at a documented boundary; this
+is that boundary, and it is documented here. An earlier version of this
+section wrote both as bare `dict`, which does not survive `mypy --strict`
+(`Missing type arguments for generic type "dict"  [type-arg]` — reproduced,
+not assumed). `dict[str, object]` was tested as the stricter alternative and
+rejected: `object` is not indexable, so `jsonld_product["brand"]["name"]` —
+JSON-LD's actual nested shape — fails to type-check, which would push casts
+into every downstream reader in P8/P9. That trades one documented boundary
+annotation for scattered per-line suppressions, exactly what `04` §3 says not
+to do. Both shapes were verified to round-trip nested JSON-LD through pydantic
+with types intact (nested objects, arrays, floats, `null`); the deciding
+factor was downstream ergonomics, not correctness. See `02-decision-log.md`.
 
 Assembly note (ties to `03` §4 stage 8): field order above is the literal qa
 sheet column order, verified against the workbook header, not re-derived from
