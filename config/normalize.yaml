@@ -27,6 +27,30 @@ unit_of_sale_tokens:
 # band as the junk above, which makes them easy to sweep up by accident.
 # Stripping them would destroy the variant signal `03` §4 stage 4 scores on.
 
+# §3 — words that turn "N x" into a marketing claim rather than a multipack
+# multiplier. Measured: of 11 `N x` occurrences across dev+qa, exactly 3 are
+# claims — "3x more effective", "4x more effective", "2x stronger enamel" —
+# and all 3 are followed by a comparative. The other 8 are genuine
+# multipliers followed by a size ("10 x 15ml", "2 x 150g") or a product noun
+# ("12x wisdom", "2x replacement heads", "1x usb cable"), which is why the
+# rule keys off the *following* word rather than trying to whitelist shapes.
+# Without this, "2x stronger enamel defence" parses as a 2-pack.
+multiplier_claim_words:
+  - more
+  - less
+  - stronger
+  - longer
+  - better
+  - whiter
+  - faster
+  - cleaner
+  - softer
+  - harder
+  - brighter
+  - healthier
+  - smoother
+  - deeper
+
 # §4 — format hints. A genuinely closed, small set; feeds
 # MatchFeatures.format_consistent (P9). Seeded from measured token frequency.
 format_hints:

@@ -153,8 +153,8 @@ first match:
 
 | # | Pattern | Regex sketch | Real example |
 |---|---|---|---|
-| 1 | `N x` | `\b(\d+)\s*x\b` | `"10 x 15ml"` → 10; `"12x wisdom smokers..."` → 12 |
-| 2 | `x N` | `\bx\s*(\d+)\b` **and not followed by a size unit** | `"listerine go tabs x8"` → 8 |
+| 1 | `N x` | `\b(\d+)\s*x\b`, **skipped when the next word is a claim word** | `"10 x 15ml"` → 10; `"12x wisdom smokers..."` → 12 |
+| 2 | `x N` | `\bx\s*(\d+)\b`, **not followed by a size unit, and not the integer part of a decimal** | `"listerine go tabs x8"` → 8 |
 | 3 | `pack of N` | `\bpacks?\s+of\s+(\d+)\b` | `"...|1 count (pack of 4)"` → 4 |
 | 4 | `N pack` | `\b(\d+)\s*[- ]?(?:pack|pk)s?\b` | `"1 pack"` → 1 |
 | 5 | `twin pack` | `\btwin\s*pack\b` | → 2 |
@@ -177,6 +177,23 @@ first match:
   of the retailer's listing boilerplate:
   `"12x wisdom smokers extra hard brush toothbrush|1 count (pack of 1)"` is
   twelve brushes, and only rule 1 sees that.
+- **The marketing-claim guard on rule 1** — found by enumerating all 11 real
+  `N x` occurrences during implementation, not at design time. Exactly 3 are
+  not multipacks at all but comparative claims: `"3x more effective"`,
+  `"4x more effective"`, `"2x stronger enamel defence"`. Unguarded, rule 1
+  ranks first and turns `"2x stronger enamel"` into a 2-pack. The remaining 8
+  are genuine, and what separates them is the *following* word — a size
+  (`10 x 15ml`, `2 x 150g`) or a product noun (`12x wisdom`,
+  `2x replacement heads`, `1x usb cable`) versus a comparative. So rule 1
+  skips a match whose next word is in
+  `config/normalize.yaml: multiplier_claim_words`, and continues scanning.
+  All three then fall through correctly to `1` from their
+  `1 count (pack of 1)` boilerplate.
+- **The decimal guard on rule 2** — `"bcsan 20 x 1.7 gr"`: without
+  `(?!\.\d)`, rule 2 captures the `1` of `1.7`. Rule 1 happens to win on that
+  row anyway, so the guard is belt-and-braces rather than load-bearing today;
+  it is here because the failure would be silent if rule 1's guard ever
+  changed.
 
 A count of `1` is stored as `1`, not collapsed to `None`. `None` means "no
 count expressed anywhere" — distinguishable in the trace from "explicitly one".
