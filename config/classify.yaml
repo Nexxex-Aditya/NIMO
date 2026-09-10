@@ -1,0 +1,62 @@
+# P5 module classifier — specs/classify.md.
+#
+# Every value here was swept against all 412 real `dev` rows under
+# leave-one-out before being written down. The measurements are in the
+# comments so that changing a value is an informed decision rather than a
+# guess, per `04` §9.
+
+# §3b — character n-gram sizes over `desc_clean`.
+#
+# Swept, leave-one-out, nearest-centroid (overall / macro):
+#   (3,)     78.9% / 47.9%
+#   (4,)     80.3% / 49.7%   <- default
+#   (5,)     79.1% / 47.2%
+#   (3,4)    80.1% / 48.5%
+#   (4,5)    79.9% / 50.7%
+#   (3,4,5)  80.1% / 50.3%
+#
+# Everything from 4 up is within a point of everything else; with modules
+# holding 1-3 rows, one macro point is one row moving in one small module.
+# 4 alone is chosen for the best overall figure and a third of the feature
+# count of (3,4,5) — a smaller model is an easier model to audit.
+ngram_sizes: [4]
+
+# §3c — whether to prepend BRAND to the classified text.
+#
+# FALSE, and this is measured, not stylistic. `04` §1's P5 gate originally
+# said the classifier reads "RETAILER_DESC + BRAND". It should not:
+#
+#   desc_clean only          80.1% overall / 50.3% macro
+#   BRAND + desc_clean       72.6% overall / 46.8% macro
+#
+# Brand does not predict module. ORAL-B makes manual brushes, electric
+# brushes, refill heads and toothpaste; a brand's n-grams pull all of its
+# products toward whichever module dominates it. Prepending BRAND also undoes
+# P3's `strip_repeated_brand`, which removes the brand from the description
+# on measured grounds.
+#
+# Left as a flag rather than deleted so the finding stays reproducible.
+use_brand: false
+
+# §6 — the unseen-module arm's routing margin. RECORDED, NOT USED.
+#
+# `dev` covers 27 of the 59 modules, so a model fitted on it can never emit
+# the other 32. A zero-shot arm scoring rows against absent modules' *names*
+# was built and measured. `dev` contains none of the 32, so every `dev` row it
+# claims is a false route by construction — which prices it exactly:
+#
+#   delta  dev routed  correct destroyed  dev overall  qa routed  qa->INTERDENTAL
+#   +0.00      35            18              76.0%         37           2
+#   +0.10      16             6              78.9%         11           2
+#   +0.20       4             0              80.3%          1           0
+#
+# No setting is both free and useful. Worse, module names encode the form axis
+# in category jargon (KITS, MULTI DOSE, FOAM/GEL/LIQUID/PASTE) that retail
+# descriptions never use, so the arm gets the family right and the form wrong:
+# "x-press dental stain remover" -> TOOTH STAIN REMOVERS - KITS.
+#
+# The score is computed and reported so a later stage — one with an actual
+# product page, or an LLM able to read one — can use it as a hint. P5 never
+# acts on it. Raising this above 0 does not enable anything; the routing code
+# does not exist by design.
+unseen_margin: 0.20

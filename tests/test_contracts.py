@@ -25,6 +25,7 @@ from nimo.contracts import (
     DescTokens,
     GoldUrl,
     MatchFeatures,
+    ModulePrediction,
     OutputRow,
     ProductQuery,
     RawRow,
@@ -106,6 +107,17 @@ CANONICAL_ENTITY = CanonicalEntity(
     resolution_tier="tier2_retrieval",
     created_at=FIXED_TS,
     updated_at=FIXED_TS,
+)
+
+MODULE_PREDICTION = ModulePrediction(
+    row_uid="dev:0",
+    module="TOOTH CLEANING - FOAM/GEL/LIQUID/PASTE (NATURAL TEETH)",
+    confidence=0.412,
+    runner_up="TOOTH STAIN REMOVERS - FOAM/GEL/LIQUID/PASTE - MULTI DOSE",
+    runner_up_gap=0.118,
+    nearest_example_row_uid="dev:12",
+    nearest_example_similarity=0.821,
+    source="text_baseline",
 )
 
 ROW_FAILURE = RowFailure(
@@ -241,6 +253,7 @@ ALL_MODELS: list[tuple[str, BaseModel]] = [
     ("CharacteristicGuideline", CHARACTERISTIC_GUIDELINE),
     ("ProductQuery", PRODUCT_QUERY),
     ("CanonicalEntity", CANONICAL_ENTITY),
+    ("ModulePrediction", MODULE_PREDICTION),
     ("RowFailure", ROW_FAILURE),
     ("RunSummary", RUN_SUMMARY),
     ("GoldUrl", GOLD_URL),
@@ -283,7 +296,7 @@ QA_HEADER: list[str] = [
 
 def test_every_contract_model_is_covered() -> None:
     """Guards the parametrized list itself against a silently-dropped model."""
-    assert len(ALL_MODELS) == 16
+    assert len(ALL_MODELS) == 17
 
 
 @pytest.mark.parametrize("name,instance", ALL_MODELS, ids=[n for n, _ in ALL_MODELS])
@@ -440,7 +453,7 @@ def test_contracts_match_architecture_section_3_field_for_field() -> None:
     `contracts.py` to match — do not relax the test.
     """
     spec = _parse_architecture_section_3()
-    assert len(spec) == 16, f"expected 16 classes in `03` §3, parsed {len(spec)}"
+    assert len(spec) == 17, f"expected 17 classes in `03` §3, parsed {len(spec)}"
     for class_name, fields in spec.items():
         model = getattr(contracts_module, class_name, None)
         assert model is not None, f"`03` §3 declares {class_name}; contracts.py has no such model"

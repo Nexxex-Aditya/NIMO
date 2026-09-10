@@ -1,6 +1,6 @@
 # 03 — Architecture & Design
 
-Version 0.7 — 2026-09-10. Living document. Update on every finding that changes
+Version 0.8 — 2026-09-10. Living document. Update on every finding that changes
 a contract, a stage boundary, or a scoring rule. Change history lives in
 `02-decision-log.md`, not here — this file always reflects current state only.
 
@@ -288,6 +288,16 @@ class DescTokens:                  # parsed from desc_clean
     format_hints: list[str]        # "pump", "spray", "tablets"
     stripped_junk: list[str]       # audit trail of what was removed
 
+class ModulePrediction:            # P5 — stage [5] output
+    row_uid: str                   # `01` §14 — never nan_key
+    module: str                    # one of char_value_list's 59. Always set, never None: stage [5] is the fallback path (§4 stage 5), and a fallback that abstains isn't one
+    confidence: float              # winning cosine, 0..1. NOT a calibrated probability — calibration (§4, P10) is about URL selection, not this
+    runner_up: str | None          # None only when the model knows exactly one module
+    runner_up_gap: float           # confidence - runner-up score; 0.0 when runner_up is None
+    nearest_example_row_uid: str | None  # closest labelled training row — the transparency surface, see the note below
+    nearest_example_similarity: float    # its cosine; 0.0 when there is no training row
+    source: Literal["text_baseline","page_evidence","registry"]
+
 class RowFailure:                  # P6a — the batch runner's typed failure record
     row_uid: str                   # which row failed (`01` §14 — never nan_key)
     stage: Literal["normalize","registry","retrieve","fetch","match","classify","characteristics","reason","assemble"]
@@ -424,6 +434,20 @@ class OutputRow:                   # serializes to qa header exactly, in order
     # empty string, never "N/A", never "NOT APPLICABLE" as a literal value.
     # The assembler (`03` §4 stage 8) writes None → an empty cell, nothing else.
 ```
+
+**`ModulePrediction.nearest_example_row_uid` is the transparency mechanism,
+and it is why stage [5]'s model is a nearest-centroid rather than anything
+opaque.** The brief scores "clear and transparent reasoning", and §4 stage 7
+requires every factual claim in `REASONING` to trace to a contract field. The
+classifier's features are character 4-grams (`specs/classify.md` §3, measured
++8 points over word tokens), whose top weights are strings like `othp` and
+`aste` — worthless as an explanation. The nearest labelled training row is a
+real citation: *"classified TOOTH CLEANING - PASTE because it most resembles
+`dev:12` `aquafresh whitening pump 100ml`, cosine 0.82, labelled that
+module"* — verifiable by opening the row. It costs one extra similarity pass
+over the training set. `source` keeps a baseline guess distinguishable in the
+trace from a module carried off a registry entity or resolved from page
+evidence; P5 only ever emits `"text_baseline"`.
 
 **Size is two fields, not one, and they are never interconverted.** Volume
 goes to `size_ml_equiv`, mass to `size_g_equiv`, and exactly one is set for a
@@ -614,8 +638,8 @@ blocks against it, not just this one (§1a, "Risk").
 59 modules, closed set from `char_value_list`. `MODULE` is fully labelled in
 `dev` (412/412) — **this is the only stage with real, measurable ground truth.**
 
-Design consequence: build a text-only baseline **first**, from `RETAILER_DESC` +
-`BRAND` alone, with no URL involved. Two reasons:
+Design consequence: build a text-only baseline **first**, with no URL
+involved. Two reasons:
 1. It is likely to be strong on its own — "wisdom mouthwash ... 300ml" names its
    own module. Measure it before assuming page evidence is needed.
 2. It is the fallback path when stage 4 abstains, or when both the registry
@@ -626,9 +650,37 @@ Then layer page evidence on top and measure the delta. If the delta is small,
 the URL pipeline's real job is characteristics, not module — which changes where
 effort goes.
 
+**Built and measured — P5, `specs/classify.md`.** Character-4-gram TF-IDF
+nearest centroid over P3's `desc_clean`: **80.3% overall (331/412), 49.7%
+macro**, leave-one-out over every `dev` row. Three results from that phase
+change what this section said:
+
+- **`BRAND` is excluded.** This section previously said the baseline reads
+  "`RETAILER_DESC` + `BRAND` alone". Measured, it should not: including BRAND
+  costs 7.5 points overall and 3.5 macro. Brand does not predict module —
+  `ORAL-B` makes manual brushes, electric brushes, refill heads and toothpaste,
+  so a brand's features pull all of its products toward whichever module
+  dominates it. Reason 1 above still holds; the input list was wrong.
+- **Reason 1 is confirmed, with a ceiling.** The description does largely name
+  its own module, but the residual errors are systematic rather than random:
+  they sit on the *form* axis within a correct family (electric vs manual
+  toothbrush, paste vs stain remover). That is what page evidence should be
+  expected to fix, and it sets a concrete target for the delta.
+- **27 of 59 modules are reachable from `dev` at all.** A supervised model
+  cannot emit the other 32, `TOOTHBRUSHES - MANUAL - INTERDENTAL` (`01` §6)
+  among them. A zero-shot arm scoring rows against absent modules' *names* was
+  built and measured, and deliberately not shipped as an override: module names
+  encode the form axis in category jargon that retail descriptions never use,
+  so it resolves the family and guesses the form. `specs/classify.md` §6 has the
+  numbers. The score is computed and recorded so this stage's page-evidence
+  layer — which has what the baseline lacks — can use it.
+
 Evaluate with stratified per-module accuracy. Overall accuracy is misleading:
 the top 4 modules are 77% of dev, so a classifier that ignores the tail scores
-well and fails on 23 of 27 module types.
+well and fails on 23 of 27 module types. Measured on the P5 baseline, that trap
+is real and not hypothetical: multinomial Naive Bayes scores 78.4% overall —
+within 2 points of the shipped model — at 38.3% macro, 11 points worse, by
+collapsing the tail.
 
 ### [6] Characteristic extraction
 

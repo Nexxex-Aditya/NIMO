@@ -428,6 +428,50 @@ def assert_guideline_modules_subset(
         )
 
 
+def load_module_labels(
+    workbook_path: Path,
+    sheet: str,
+    rules: list[CharacteristicRule],
+) -> list[str]:
+    """`MODULE` ground truth for `sheet`, positionally aligned with `load_rows`.
+
+    `dev` only in practice: `01` §6 — `MODULE` is 412/412 populated in `dev`
+    and empty in `qa`, which is why it is the one stage with real measurable
+    ground truth (`03` §4 stage 5).
+
+    Deliberately not a `RawRow` field. `RawRow` is the *input* contract, one
+    per sheet row; ground truth is a separate, `dev`-only artifact and putting
+    it on the row would make it structurally possible for a predictor to read
+    its own answer. Returned positionally aligned instead, the same shape
+    `nimo.gold.sample.stratify_by_module` already consumes.
+
+    Every label is checked against `char_value_list`'s module set — the
+    silent-schema-drift guardrail from `05` §5, applied to the labels rather
+    than the inputs.
+    """
+    frame = pd.read_excel(workbook_path, sheet_name=sheet, dtype=str)
+    if "MODULE" not in frame.columns:
+        raise DatasetSchemaError(f"{sheet}: no MODULE column. `01` §2 says both sheets have one.")
+
+    labels = [str(value) for value in frame["MODULE"]]
+    missing = [index for index, label in enumerate(labels) if label in ("", "nan")]
+    if missing:
+        raise DatasetDriftError(
+            f"{sheet}: {len(missing)} row(s) have no MODULE label (first at {sheet}:{missing[0]}). "
+            f"`01` §6 records dev as 412/412 populated; an empty label means the file changed "
+            f"and every accuracy number measured against it is void."
+        )
+
+    known = {rule.module for rule in rules}
+    unknown = sorted(set(labels) - known)
+    if unknown:
+        raise DatasetSchemaError(
+            f"{sheet}: {len(unknown)} MODULE value(s) absent from char_value_list: {unknown}. "
+            f"A label outside the closed 59-value set cannot be predicted or scored (`01` §7)."
+        )
+    return labels
+
+
 def applicable_characteristics(rules: list[CharacteristicRule], module: str) -> list[str]:
     """Which characteristics apply to `module`. `specs/loader.md` §8.
 

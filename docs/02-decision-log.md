@@ -781,6 +781,186 @@ written, at the start of P6a.
 **Status:** standing
 
 
+## 2026-09-10 — P5 module baseline: char n-grams over words, BRAND excluded against the gate's own wording, 32 modules unreachable
+**Decision:** `specs/classify.md` written and implemented. The module baseline
+is a **character-4-gram TF-IDF nearest centroid over P3's `desc_clean`**,
+emitting a new `ModulePrediction` contract. Measured leave-one-out over all
+412 `dev` rows: **80.3% overall (331/412), 49.7% macro**. Four decisions
+inside that, each made from a measurement rather than a preference, and the
+last one is the one worth reading.
+
+**1. Character n-grams, not word tokens — +8 points, and P3 earns its keep.**
+Leave-one-out, nearest-centroid throughout, only features varying:
+
+| features | overall | macro |
+|---|---|---|
+| word unigrams over `desc_raw` | 68.9% | 35.4% |
+| word unigrams over `desc_clean` | 72.1% | 41.2% |
+| words + brand + char 4-grams | 80.3% | 47.9% |
+| **char 4-grams alone over `desc_clean`** | **80.3%** | **49.7%** |
+
+The mechanism is visible in the data: this dataset writes the same product as
+`toothpaste`, `tooth paste`, `t/paste`, `pste`, `dentifrice` and
+`aufsteckbürsten`, and truncates hard (`s/d t/c tooth stain erase`,
+`ob g&e es man tbrush`). Word tokens make each of those a separate feature;
+4-grams share substrings across all of them. Adding word features on top of
+n-grams buys nothing. Sizes were swept (3, 4, 5, and the three pairs/triple)
+and everything from 4 up is within a point on both metrics — `[4]` is the
+default for the best overall figure at a third of the feature count.
+
+Separately worth recording: **`desc_clean` beats `desc_raw` by 3.2 points
+overall and 5.8 macro on identical features.** That is the first independent,
+downstream-task evidence that P3's retailer-suffix stripping does something,
+as opposed to P3's own unit tests confirming it does what it says.
+
+**2. Nearest centroid over Naive Bayes, decided on macro rather than overall.**
+
+| model | overall | macro |
+|---|---|---|
+| TF-IDF nearest centroid | **80.3%** | **49.7%** |
+| Multinomial NB, empirical prior | 73.1% | 22.6% |
+| Complement NB, uniform prior | 78.4% | 38.3% |
+| k-NN cosine, k=1 | 66.3% | 32.1% |
+
+Complement NB lands within 2 points of the centroid on overall accuracy and
+11 points behind on macro. It buys head accuracy by collapsing the tail —
+exactly the trap `01` §9 predicted in the abstract, now instantiated. Had this
+phase reported overall accuracy alone, NB would have looked like a reasonable
+choice. **Macro accuracy is the headline number for this stage**, and
+`format_report` prints it first with `overall` beneath it, deliberately.
+
+No scikit-learn: 412 rows × 27 classes is a hundred lines of arithmetic, and
+the dependency would need an `ignore_missing_imports` override (`04` §3) to
+buy an implementation of what is now unit-tested against hand-computed vectors.
+
+**3. BRAND is excluded, which contradicts `04` §1's own P5 gate wording, and
+the gate was corrected rather than the code.** `04` §1 said "text-only
+classifier over `RETAILER_DESC` + `BRAND`". Measured, char (3,4,5)-grams:
+
+    desc_clean only        80.1% overall / 50.3% macro
+    BRAND + desc_clean     72.6% overall / 46.8% macro
+
+7.5 points overall. Brand does not predict module: `ORAL-B` makes manual
+brushes, electric brushes, refill heads and toothpaste; `COLGATE` makes paste,
+mouthwash and brushes. A brand's n-grams pull all of its products toward
+whichever module dominates that brand. There is a second reason worth naming
+because it would otherwise look like a bug: P3's `strip_repeated_brand`
+deliberately removes the brand from the description, and prepending `BRAND`
+puts it back, undoing a normalization made on measured grounds. Left behind a
+`use_brand: false` config flag so the finding stays reproducible instead of
+becoming folklore, with the numbers in the test's assertion message.
+
+**4. 32 of 59 modules are unreachable, two mechanisms were built to fix that,
+and both were measured and rejected. This is the finding of the phase.**
+
+`dev` covers 27 of the 59 defined modules, so a model fitted on it can never
+emit the other 32 — `01` §6 names a live casualty, `TOOTHBRUSHES - MANUAL -
+INTERDENTAL`, with zero `dev` rows and `qa` rows that need it.
+
+*Attempt 1 — module-name pseudo-documents*, adding each of the 59 module names
+to its own class so every module exists in the model. Costs 3 points overall
+and 4–6 macro at every weight tried (w=0.25 → 77.2%/46.8%; w=2.0 →
+77.9%/44.5%). Rejected.
+
+*Attempt 2 — a separate zero-shot arm* over the 32 absent modules, scoring a
+row against each absent module's **name**, routing when it beats the
+supervised arm by margin δ. **`dev` prices this exactly, which is why it was
+worth building: `dev` contains none of the 32, so every `dev` row the arm
+claims is a false route by construction.**
+
+| δ | dev routed | correct answers destroyed | dev overall | qa routed | qa → INTERDENTAL |
+|---|---|---|---|---|---|
+| +0.00 | 35 | 18 | 76.0% | 37 | 2 |
+| +0.10 | 16 | 6 | 78.9% | 11 | 2 |
+| +0.20 | 4 | 0 | 80.3% | 1 | 0 |
+
+No setting is both free and useful: at δ=+0.20 it costs nothing and does
+nothing; at δ=+0.10 it reaches the interdental rows and destroys 6 correct
+answers. And the qualitative check is worse than the table. Of the 11 `qa`
+rows routed at δ=+0.10, roughly 4 are right (`wisdom advanced interdental
+toothbrush 2pack` → INTERDENTAL; `tung brush` → TONGUE CLEANING) and the rest
+are plainly wrong (`poli-grip liquid foam cleanser` → ORTHODONTIC CLEANSERS,
+when Poligrip is denture care; `colgate 2 in 1 whitening liquid gel` →
+ORTHODONTIC CLEANSERS, when it is toothpaste).
+
+The `dev` false routes show the mechanism exactly: **the arm gets the product
+family right and the form wrong.**
+
+    "x-press dental stain remover"      -> TOOTH STAIN REMOVERS - KITS
+    "galpharm mouth ulcer treatment 3s" -> ORAL TREATMENT - GRANULES/POWDER - MULTI DOSE
+
+Module names encode the form axis in category jargon — `FOAM/GEL/LIQUID/PASTE`,
+`KITS`, `MULTI DOSE`, `PRE CUT PIECES/SINGLES` — that retail descriptions never
+use. Name matching therefore resolves the family and then *guesses* the form,
+and a wrong form scores identically to a wildly wrong answer.
+
+**So: compute the unseen score, record it, never act on it at P5.**
+`ModuleClassifier.unseen_scores` exists and has no routing code by design.
+`01` §6's requirement is deferred, not dropped, and now has a concrete lever:
+`qa:259` is reachable with margin +0.195 for whichever later stage holds an
+actual product page saying "interdental brush". `qa:124` (`tesco proformula
+interdental sticks 100's`) is genuinely ambiguous — the supervised model calls
+it `TOOTHPICKS - MANUAL - DISPOSABLE` at 0.391, which is defensible for an
+interdental *stick*; `01` §6 called both rows candidates, not confirmed labels.
+
+**Also decided, smaller:**
+
+- **`ModulePrediction` added to `03` §3** (17 contracts now). `03` §2 drew
+  stage `[5]`'s output as a bare `MODULE` string, which is too thin once
+  anything downstream has to decide with it — `03` §4 stage 5 makes this the
+  fallback path, so the runner needs to know how much to trust it, and `04` §3
+  requires inter-module values to be typed anyway. It carries
+  `nearest_example_row_uid`: char-4-gram weights explain nothing to a human
+  (`othp`, `aste`), but *"most resembles `dev:12` `aquafresh whitening pump
+  100ml`, cosine 0.82, labelled that module"* is a citation someone can check,
+  which is what the brief's transparency criterion and `03` §4 stage 7's
+  anti-hallucination rule actually need.
+- **No abstention at this stage.** Stage `[5]` is the fallback when retrieval
+  fails; a fallback that declines to answer is not one. `module` is always set
+  and trust is carried on `confidence`. That is licensed by measurement rather
+  than assumed: accuracy by confidence decile runs 31.7% in the bottom decile
+  to 95.2% in the top, so confidence carries real information. Had it been
+  flat, the field would have been decoration.
+- **`load_module_labels` added to the loader**, returning labels positionally
+  aligned with `load_rows` rather than as a `RawRow` field — putting ground
+  truth on the input row would make it structurally possible for a predictor
+  to read its own answer. It also asserts every label is in
+  `char_value_list`'s module set, which is `05` §5's silent-schema-drift
+  guardrail applied to labels instead of inputs.
+- **Two evaluation protocols, both without any RNG.** Leave-one-out (412 fits,
+  ~60s) is the reported number. A deterministic module-stratified 5-fold (5
+  fits, 0.3s — rows dealt round-robin within each module, so no shuffle, so no
+  seed) is the regression guard, pinned at exactly 323/412 in the test suite.
+  LOO is deliberately not asserted in the suite: a 60-second test would make
+  `make check` five times slower for every future phase. It is reproducible
+  with `uv run python -m nimo.classify`.
+- **The four single-row `dev` modules score a structural 0%** under any
+  held-out protocol, LOO included — removing the row removes the class. They
+  stay in the macro denominator. Dropping them would raise the headline by
+  hiding precisely the tail the metric exists to expose.
+- **`ClassifierReport` is a frozen dataclass, not a `contracts.py` model.**
+  `03` §3 is the *pipeline* contract authority and this is an evaluation
+  artifact that never crosses a stage boundary. It still satisfies `04` §3 —
+  what leaves the module is typed, not a bare dict.
+
+**Where the remaining errors are, for whoever builds the page-evidence layer:**
+they are systematic, not random, and they sit on the **form** axis inside a
+correct family — ELECTRIC COMPLETE PACK ↔ MANUAL REGULAR (13 rows both ways),
+TOOTH CLEANING ↔ TOOTH STAIN REMOVERS (6), ELECTRIC COMPLETE PACK ↔ REFILL
+HEADS (6). Those are exactly the distinctions a product page states outright
+and a truncated retailer string does not, which is a concrete, measurable
+target for the delta `03` §4 stage 5 asks for rather than a hope.
+**Affects:** new `specs/classify.md`, new `config/classify.yaml`, new
+`src/nimo/classify/` (`config.py`, `features.py`, `model.py`, `evaluate.py`,
+`__main__.py`), new `tests/classify/`. `03-architecture.md` §3
+(`ModulePrediction` + transparency note), §4 stage 5 (rewritten with the
+measured results), version → 0.8. `04-build-standards.md` §1 P5 row (gate
+wording corrected, status done). `src/nimo/loader/dataset.py`
+(`load_module_labels`). `src/nimo/contracts.py`, `tests/test_contracts.py`
+(17 models), `specs/contracts.md`.
+**Status:** standing
+
+
 ---
 
 # Open questions — resolve with organizers

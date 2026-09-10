@@ -27,6 +27,7 @@ Build in this order — each depends only on classes above it:
 3. `CharacteristicRule`
 4. `CharacteristicGuideline`
 5. `ProductQuery` — inherits `RawRow`
+5a. `ModulePrediction` — added for P5, see `02-decision-log.md`
 6. `CanonicalEntity`
 6a. `RowFailure`, `RunSummary` — added for P6a, see `02-decision-log.md`
 6b. `GoldUrl` — added for P4, see `02-decision-log.md`
@@ -139,7 +140,7 @@ In addition to `04` §11's full checklist:
   `src/nimo/contracts.py`, matching `03` §3 field-for-field
 - [ ] Every model is `frozen=True`
 - [ ] Every `Literal` matches `03` §3 verbatim — no widened types
-- [ ] Parametrized round-trip test covers every model individually (16 as of P6a's `RowFailure`/`RunSummary`)
+- [ ] Parametrized round-trip test covers every model individually (17 as of P5's `ModulePrediction`)
 - [ ] `ProductQuery`'s inheritance round-trip is tested explicitly, not just
   implied by `RawRow`'s own test passing
 - [ ] No `dict` with a non-`str` key anywhere in the file

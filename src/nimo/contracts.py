@@ -82,6 +82,25 @@ class ProductQuery(RawRow):  # normalizer (P3) output — RawRow + parsed descri
     tokens: DescTokens
 
 
+class ModulePrediction(BaseModel):  # P5 — stage [5] output, `specs/classify.md`
+    model_config = ConfigDict(frozen=True)
+
+    row_uid: str  # `01` §14 — never nan_key
+    # one of char_value_list's 59. Always set, never None: stage [5] is the
+    # fallback path (`03` §4 stage 5), and a fallback that abstains isn't one.
+    module: str
+    # winning cosine, 0..1. NOT a calibrated probability — calibration (P10)
+    # is about URL selection, not this.
+    confidence: float
+    runner_up: str | None  # None only when the model knows exactly one module
+    runner_up_gap: float  # confidence - runner-up score; 0.0 when runner_up is None
+    # closest labelled training row — the transparency surface. Char 4-gram
+    # weights explain nothing to a human; a cited neighbour does (`03` §3).
+    nearest_example_row_uid: str | None
+    nearest_example_similarity: float  # its cosine; 0.0 when there is no training row
+    source: Literal["text_baseline", "page_evidence", "registry"]
+
+
 class CanonicalEntity(BaseModel):  # §1a — one persisted, resolved product
     model_config = ConfigDict(frozen=True)
 
