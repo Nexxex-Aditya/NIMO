@@ -127,7 +127,8 @@ control: `τ_merge` stricter than the acceptance threshold, plus **L6** in `03`
 design here — one addition:
 
 - **Every registry write is audit-logged, append-only**: `entity_id`, which
-  `NAN_KEY`s were merged, at what confidence, in which run. Not for
+  `row_uid`s were merged, at what confidence, in which run (`row_uid`, not
+  `NAN_KEY` — the latter collides across different products, `01` §14). Not for
   compliance theater — so that if L6 catches a bad merge, it's traceable and
   reversible instead of requiring registry reconstruction from scratch.
 

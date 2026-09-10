@@ -1,6 +1,6 @@
 # 03 — Architecture & Design
 
-Version 0.6 — 2026-09-10. Living document. Update on every finding that changes
+Version 0.7 — 2026-09-10. Living document. Update on every finding that changes
 a contract, a stage boundary, or a scoring rule. Change history lives in
 `02-decision-log.md`, not here — this file always reflects current state only.
 
@@ -48,13 +48,20 @@ The pipeline in §2 (v0.1) treats every row as new: normalize, retrieve, fetch,
 match, from scratch, every time. That is correct for *correctness* but wrong for
 *efficiency at production scale*, because it ignores the dominant structure in
 this domain: **the same physical product recurs constantly** — across
-retailers, across countries, across re-audits of the same catalog. NIQ's own
-data already shows this at toy scale: `dev` and `qa` share 40 identical
-`ITEM_CODE` values despite being nominally disjoint sets (`01` §6), and `dev`
-alone spans 44 retailers and 50+ country combinations for what is very likely
-far fewer than 331 truly distinct products (331 is only the distinct
-`ITEM_CODE` count in dev, not a floor — a rescan or a promo-cycle refresh
-produces new rows for the same real-world item).
+retailers, across countries, across re-audits of the same catalog.
+
+The evidence for that premise had to be replaced once, and the replacement is
+the honest one. An earlier version of this section cited "`dev` and `qa`
+share 40 identical `ITEM_CODE` values despite being nominally disjoint sets".
+That is false: **all 40 are rounding-corruption artifacts** (`01` §14), and
+the rows they link are different products. The sets are disjoint.
+
+What is true, measured over P3-normalized rows by content fingerprint
+(`brand + size_ml_equiv + size_g_equiv + count`, sized rows only): **95 `dev`
+rows repeat an earlier `dev` row**, and **136 of 220 sized `qa` rows (62%)
+block against a fingerprint already resolved in `dev`**. The repeat structure
+is real; it just has to be found in the descriptions, not in the corrupted
+internal keys.
 
 A pipeline with no memory pays the full retrieval + matching + LLM cost for
 every re-observation of the same product, forever. That does not scale and it
@@ -93,7 +100,7 @@ scale (retail master-data matching, e-commerce catalog dedup) actually run.
 **1. Canonical Entity Registry.** A persistent store (`data/registry/`, backed
 up, not treated as disposable cache) of resolved products. Each record is a
 `CanonicalEntity` (§3): the barcode if known, brand, normalized size/count, the
-resolved module, URL, and characteristics, plus every `NAN_KEY` folded into it
+resolved module, URL, and characteristics, plus every `row_uid` folded into it
 and which tier resolved it.
 
 **2. Blocking, before any expensive comparison.** Never compare a new row
@@ -112,7 +119,7 @@ against every registry entity. Partition first:
   missing real duplicates.
 
 **3. Union-Find match graph.** When a match is confirmed at high confidence
-(§4, stage 4 write-back), the row's `NAN_KEY` is merged into an existing entity
+(§4, stage 4 write-back), the row's `row_uid` is merged into an existing entity
 sharing its block key, or a new entity is created. Connected components over
 this relation are computed by disjoint-set union — deterministic, no training,
 `O(n·α(n))`.
@@ -133,41 +140,46 @@ bottleneck; do not pre-build index infrastructure the data doesn't yet justify.
 
 ### The efficiency claim, stated so it can be checked, not just asserted
 
-"Cost per item declines as the registry warms" is a testable claim, not a
-slogan — but an earlier version of this section proposed the wrong check, and
-it's worth being explicit about why rather than quietly swapping it.
+"Cost per item declines as the registry warms" is testable, not a slogan —
+but this section has now proposed the wrong check **twice**, and both errors
+are worth keeping visible rather than quietly overwriting.
 
-**What doesn't work:** resolving `dev` then `qa` and expecting the 40
-`ITEM_CODE` values common to both to hit **Tier 0** on their second
-observation. This can't happen — Tier 0 is an exact clean-barcode match, and
-the barcode corruption defect (`01` §3) hits this exact overlap set too: of
-the 102 `dev` rows carrying one of those 40 `ITEM_CODE`s, only 4 have a usable
-barcode, and **zero** `ITEM_CODE`s have both a clean `dev`-side barcode and a
-clean `qa`-side barcode that actually agree. Tier 0 cannot fire on this set at
-all, not rarely — never. Proposing it as the checkable demo was a design
-error, caught before it reached a test that would have failed and required
-someone to guess why.
+**Attempt 1 — Tier 0 on the 40-`ITEM_CODE` overlap.** Wrong because Tier 0
+needs a clean barcode on both sides and the corruption defect (`01` §3) hits
+that set: zero overlapping `ITEM_CODE`s have clean, agreeing barcodes.
 
-**What actually works:** the same overlap, checked against **Tier 1**
-instead. Tier 1 blocks on a brand/size/count fingerprint, not the barcode —
-it doesn't depend on `EXTERNAL_CODE` being intact. The check: resolve `dev`
-first, then `qa`; for the 40 overlapping `ITEM_CODE`s, measure what fraction
-of the `qa`-side rows Tier 1 recovers as a fingerprint match to their
-already-resolved `dev`-side counterpart. Report this as a **recall
-percentage**, not a raw hit count — some legitimate misses are expected where
-the fingerprint genuinely differs (a repack, a size change under the same
-`ITEM_CODE`), so 100% isn't the bar; a large majority is.
+**Attempt 2 — Tier 1 on the same 40-`ITEM_CODE` overlap.** Wrong for a
+deeper reason found in P4: **the overlap itself does not exist.** All 40
+shared `ITEM_CODE`s, and all 23 shared `NAN_KEY`s, are rounding artifacts
+(`01` §14). The pairs are different products. Measuring "recall" of matching
+them would have measured nothing — or worse, scored *highly* precisely when
+the fingerprint wrongly merged unrelated products.
 
-A tighter, currently-unused alternative worth keeping in reserve: 23
-`NAN_KEY` values are also common to both sets (`01` §9) — a smaller overlap,
-but `NAN_KEY` may be a more reliable "same observed item" signal than
-`ITEM_CODE`, which is explicitly documented as non-unique. Not adopted as the
-primary check here, just flagged as a fallback if Tier-1 recall on the
-`ITEM_CODE` overlap turns out to be hard to interpret.
+**What actually works — content, not keys.** Fingerprint rows on
+`brand + size_ml_equiv + size_g_equiv + count` from `DescTokens`, resolve
+`dev` first, then `qa`, and report two numbers, not one:
 
-Report tier distribution and this recall figure in the run summary (§5) and
-the demo — it's a live, honest demonstration of the actual efficiency
-property, not the one originally (and incorrectly) proposed.
+- **Tier-1 block hit rate** — what fraction of sized `qa` rows land in a
+  block already populated from `dev`. Measured ceiling: **136 / 220 = 62%**.
+  This is a *reach* number, not an accuracy number.
+- **Tier-1 precision within the block** — of those blocked pairs, how many
+  are genuinely the same product. This is the number that matters, and it
+  cannot be assumed: of the 48 fingerprints shared across `dev`/`qa`, some
+  are the same product (`aquafresh whitening pump 100ml` on both sides) and
+  some are not (`aquafresh extra care mint breeze 500ml` vs `aquafresh
+  intense clean invigorating 500ml`). Scored against the P4 gold set, or by
+  spot-check where the gold set doesn't reach.
+
+**The design consequence, which is the real finding:** the fingerprint is a
+*blocking* key and must never be treated as a match. Discrimination happens
+inside the block, on variant terms, at Tier 1 — exactly as §4 stage `[1]`
+specifies. That step is load-bearing, not a refinement: without it the
+registry merges Aquafresh Extra Care into Aquafresh Intense Clean on the
+first run. That is registry poisoning (`05` §4) reachable from real data, and
+it is why `τ_ann` is tuned rather than guessed.
+
+Report tier distribution, block hit rate and within-block precision in the
+run summary (§5) and the demo.
 
 ### Risk this introduces, and its control
 
@@ -213,7 +225,8 @@ row that blocks against it. Two controls:
   [8] Assemble & validate ───────► output row (qa schema, exact)
 ```
 
-Every stage writes its intermediate artifact to disk keyed by `NAN_KEY`. Stages
+Every stage writes its intermediate artifact to disk keyed by `row_uid`
+(**not** `NAN_KEY` — it collides across different products, `01` §14). Stages
 are independently re-runnable. A change to stage 6 must not force a re-crawl. A
 registry hit at stage 1 skips stages 2–4 entirely — that skip is the whole
 point of §1a.
@@ -233,8 +246,9 @@ fine *inside* a module, it just isn't the type that crosses the boundary.
 
 ```python
 class RawRow:                      # loader (P2) output — one per dev/qa row, pre-normalization
-    nan_key: int
-    item_code: int
+    row_uid: str                    # "dev:0", "qa:117" — sheet + 0-based source row. THE row identity. NAN_KEY/ITEM_CODE are corrupted and collide across different products (`01` §14); never key anything on them
+    nan_key: int                    # NIQ key, verbatim — traceability and submission only, NOT unique
+    item_code: int                  # NIQ item id, verbatim — traceability and submission only, NOT unique
     barcode: str | None             # normalized string, None if absent OR corrupt (see `01` §3)
     barcode_raw: str | None         # original string before nulling on corruption — audit/trace only, NEVER used for matching or registry blocking
     barcode_corrupt: bool           # True for the rounded dev values
@@ -274,6 +288,16 @@ class DescTokens:                  # parsed from desc_clean
     format_hints: list[str]        # "pump", "spray", "tablets"
     stripped_junk: list[str]       # audit trail of what was removed
 
+class GoldUrl:                     # P4 — one hand-verified URL label, §6 L3/L4
+    row_uid: str                   # "dev:N" — the row identity (`01` §14); nan_key would not be unique
+    nan_key: int                   # carried for traceability only
+    sheet: Literal["dev"]          # dev only — qa has no MODULE to stratify on
+    url: str | None                # set iff label == "correct"
+    page_title: str | None         # see [PROVISIONAL — Q2]
+    label: Literal["correct", "no_page_found", "ambiguous"]
+    evidence: str                  # what was actually checked on the page — never "looks right"
+    verified_on: str               # ISO date; audit trail for a hand-produced artifact
+
 class BlockKey:                    # §1a — blocking, computed at stage [1]
     key: str                       # clean barcode, or fingerprint(brand,size,count)
     method: Literal["exact_gtin", "fingerprint"]
@@ -291,7 +315,7 @@ class CanonicalEntity:             # §1a — one persisted, resolved product
     page_title: str | None         # see [PROVISIONAL — Q2]
     characteristics: dict[str, str]  # applicable-only, post-gate values
     confidence: float
-    member_nan_keys: list[int]     # every row folded into this entity
+    member_row_uids: list[str]     # every row folded into this entity, by row_uid — NOT nan_key, which collides (`01` §14)
     resolution_tier: Literal["tier0_exact","tier1_ann","tier2_retrieval","tier3_llm"]
     created_at: datetime
     updated_at: datetime
@@ -557,7 +581,7 @@ depends on whether a wrong URL is penalized more than a blank one.
 
 **Write-back to the registry (§1a).** A confirmed match — hard-rule GTIN
 accept, or `calibrated_prob ≥ τ_merge` — creates or updates a `CanonicalEntity`:
-union this row's `NAN_KEY` into an existing entity sharing the block key
+union this row's `row_uid` into an existing entity sharing the block key
 (Union-Find merge, deterministic, no training), or create a new one. This is
 what makes tiers 0–1 warm up over a run and across runs — the registry is
 disk-persisted, not scoped to one batch. `τ_merge` must be stricter than the
@@ -664,7 +688,7 @@ this time.
 - **Determinism.** Temperature 0, fixed seeds, LLM responses cached by
   `hash(model, prompt, params)`. A re-run with no code change must produce a
   byte-identical output file.
-- **Resumability.** Batch runner processes by `NAN_KEY`, skips completed,
+- **Resumability.** Batch runner processes by `row_uid`, skips completed,
   survives interruption. 412 rows × network I/O will fail partway; plan for it.
 - **Observability.** One structured JSON trace record per row per stage. Cost
   and latency counters per LLM call.

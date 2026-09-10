@@ -248,6 +248,7 @@ def load_rows(
 
         rows.append(
             RawRow(
+                row_uid=f"{sheet}:{position}",
                 nan_key=nan_key,
                 item_code=int(str(record["ITEM_CODE"])),
                 barcode=barcode,

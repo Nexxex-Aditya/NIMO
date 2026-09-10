@@ -350,3 +350,39 @@ def test_no_network_access_during_load(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(socket, "create_connection", _forbidden)
     rows = load_rows(WORKBOOK, "qa", RETAILERS)
     assert len(rows) == 412
+
+
+# --- Row identity (`01` §14) --------------------------------------------
+
+
+def test_row_uid_is_unique_where_nan_key_is_not(
+    dev_rows: list[RawRow], qa_rows: list[RawRow]
+) -> None:
+    """`01` §14: NAN_KEY collides across genuinely different products.
+
+    15 dev NAN_KEYs are duplicated (42 rows) and 16 in qa (46 rows), every
+    one of them a rounding artifact — and 11 dev NAN_KEYs span more than one
+    MODULE, i.e. unrelated products sharing a key. `03` §2/§5 key per-row
+    artifacts and resumability on the row identity, so it has to be unique or
+    one product's cached result is served for another, silently.
+    """
+    for name, rows in (("dev", dev_rows), ("qa", qa_rows)):
+        uids = [row.row_uid for row in rows]
+        assert len(set(uids)) == len(rows), f"{name} row_uid is not unique"
+        nan_keys = [row.nan_key for row in rows]
+        assert len(set(nan_keys)) < len(rows), (
+            f"{name} NAN_KEY is unexpectedly unique — `01` §14 records it as colliding. "
+            f"If the organizers fixed it, re-verify 01 before relying on it."
+        )
+
+
+def test_row_uid_encodes_sheet_and_position(dev_rows: list[RawRow]) -> None:
+    """Positional and deterministic — same file in, same identity out."""
+    assert dev_rows[0].row_uid == "dev:0"
+    assert dev_rows[411].row_uid == "dev:411"
+
+
+def test_row_uid_does_not_collide_across_sheets(
+    dev_rows: list[RawRow], qa_rows: list[RawRow]
+) -> None:
+    assert not ({row.row_uid for row in dev_rows} & {row.row_uid for row in qa_rows})

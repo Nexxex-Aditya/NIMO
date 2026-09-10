@@ -23,6 +23,7 @@ from nimo.contracts import (
     CharacteristicGuideline,
     CharacteristicRule,
     DescTokens,
+    GoldUrl,
     MatchFeatures,
     OutputRow,
     ProductQuery,
@@ -45,6 +46,7 @@ DESC_TOKENS = DescTokens(
 )
 
 RAW_ROW = RawRow(
+    row_uid="dev:0",
     nan_key=12722399,
     item_code=5405264,
     barcode="5014697056627",
@@ -98,10 +100,21 @@ CANONICAL_ENTITY = CanonicalEntity(
         "GLOBAL_ORAL_CARE_FUNCTION": "ANTI BACTERIAL & FRESHENING & WHITENING",
     },
     confidence=0.93,
-    member_nan_keys=[12722399, 45138583],
+    member_row_uids=["dev:0", "qa:117"],
     resolution_tier="tier2_retrieval",
     created_at=FIXED_TS,
     updated_at=FIXED_TS,
+)
+
+GOLD_URL = GoldUrl(
+    row_uid="dev:0",
+    nan_key=3546967,
+    sheet="dev",
+    url="https://www.boots.com/aquafresh-whitening-100ml",
+    page_title="Aquafresh Whitening Toothpaste 100ml | Boots",
+    label="correct",
+    evidence="brand AQUAFRESH, 100ml, whitening variant and pump format all shown on page",
+    verified_on="2026-09-10",
 )
 
 BLOCK_KEY = BlockKey(key="5014697056627", method="exact_gtin")
@@ -203,6 +216,7 @@ ALL_MODELS: list[tuple[str, BaseModel]] = [
     ("CharacteristicGuideline", CHARACTERISTIC_GUIDELINE),
     ("ProductQuery", PRODUCT_QUERY),
     ("CanonicalEntity", CANONICAL_ENTITY),
+    ("GoldUrl", GOLD_URL),
     ("BlockKey", BLOCK_KEY),
     ("RegistryLookupResult", REGISTRY_LOOKUP_RESULT),
     ("CandidateURL", CANDIDATE_URL),
@@ -240,9 +254,9 @@ QA_HEADER: list[str] = [
 ]
 
 
-def test_all_thirteen_models_are_covered() -> None:
+def test_every_contract_model_is_covered() -> None:
     """Guards the parametrized list itself against a silently-dropped model."""
-    assert len(ALL_MODELS) == 13
+    assert len(ALL_MODELS) == 14
 
 
 @pytest.mark.parametrize("name,instance", ALL_MODELS, ids=[n for n, _ in ALL_MODELS])
@@ -324,6 +338,8 @@ def test_nested_jsonld_survives_round_trip_with_types_intact() -> None:
         (RegistryLookupResult, "tier", "tier2_retrieval"),
         (CanonicalEntity, "resolution_tier", "tier4"),
         (Selection, "resolution_tier", "miss"),
+        (GoldUrl, "label", "probably_right"),
+        (GoldUrl, "sheet", "qa"),
     ],
 )
 def test_literals_reject_out_of_vocabulary_values(
@@ -396,7 +412,7 @@ def test_contracts_match_architecture_section_3_field_for_field() -> None:
     `contracts.py` to match — do not relax the test.
     """
     spec = _parse_architecture_section_3()
-    assert len(spec) == 13, f"expected 13 classes in `03` §3, parsed {len(spec)}"
+    assert len(spec) == 14, f"expected 14 classes in `03` §3, parsed {len(spec)}"
     for class_name, fields in spec.items():
         model = getattr(contracts_module, class_name, None)
         assert model is not None, f"`03` §3 declares {class_name}; contracts.py has no such model"

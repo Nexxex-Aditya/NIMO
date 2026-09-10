@@ -23,6 +23,7 @@ RETAILERS = REPO_ROOT / "config" / "retailers.yaml"
 def make_row(desc: str, brand: str, retailer_raw: str, retailer: str) -> RawRow:
     """A minimal RawRow carrying only what the normalizer reads."""
     return RawRow(
+        row_uid="dev:0",
         nan_key=1,
         item_code=1,
         barcode=None,

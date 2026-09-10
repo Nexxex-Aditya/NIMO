@@ -601,13 +601,83 @@ rewritten wholesale and `src/` is now verified free of control bytes.
 `tests/normalize/`. `04` §1 P3 row → done.
 **Status:** standing
 
+## 2026-09-10 — `NAN_KEY`/`ITEM_CODE` are corrupted too; the dev/qa overlap is void; row identity moves to `row_uid`
+**Decision:** Three linked changes, from one finding made during P4.
+(1) New `01` §14 documents that `NAN_KEY` and `ITEM_CODE` carry the same
+`0.00E+00` rounding corruption as `EXTERNAL_CODE`. (2) `RawRow` gains
+`row_uid: str` (`"{sheet}:{index}"`), which becomes **the** row identity;
+`CanonicalEntity.member_nan_keys` becomes `member_row_uids`; `GoldUrl` keys
+on `row_uid`. `NAN_KEY`/`ITEM_CODE` stay on the row verbatim for
+traceability and submission, but nothing is ever keyed on them. (3) P6's
+gate and `03` §1a's efficiency claim are restated against a content
+fingerprint, because the overlap they rested on does not exist.
+**Why:** noticed because the P4 stratified sampler reported 26 modules
+covered when it should have covered 27 — a `NAN_KEY`-keyed dict inside the
+sampler was silently collapsing rows. Chasing that one-module discrepancy
+produced the following, all measured via `openpyxl` cell `number_format`,
+the same method that found the barcode defect:
+
+- **`NAN_KEY`: 65/412 `dev`, 67/412 `qa` rounded. `ITEM_CODE`: 162/412
+  `dev`, 168/412 `qa`.** 15 `dev` `NAN_KEY`s are duplicated (42 rows), 16 in
+  `qa` (46 rows), and **every duplicated value is one of the rounded ones** —
+  the duplication is entirely an artifact. 11 `dev` `NAN_KEY`s span multiple
+  modules: `147000000` is simultaneously a breath freshener, a Listerine
+  mouthwash and an Oral-B toothbrush.
+- **This breaks two things `03` states directly.** §2: "Every stage writes
+  its intermediate artifact to disk keyed by `NAN_KEY`." §5: "Batch runner
+  processes by `NAN_KEY`, skips completed." Under collision, one product's
+  cached artifact is served for a different product, and a completed row
+  marks an unrelated row done — no exception, plausible wrong output. `05`
+  §5 predicted this exact case in writing ("the same class can recur
+  anywhere a numeric-looking string crosses openpyxl/pandas, **including
+  `NAN_KEY`/`ITEM_CODE`**"); it had simply never been checked.
+- **The dev/qa overlap is entirely spurious.** All 40 shared `ITEM_CODE`s
+  and all 23 shared `NAN_KEY`s are rounded values; **zero are clean**. The
+  pairs are visibly different products (`ITEM_CODE 509000000`: "jason
+  coconut mint toothpaste 119g" in `dev` vs "ultradex one go mouthwash
+  sachets" in `qa`). So `01` §9's overlap bullet and `03` §1a's motivating
+  evidence — "dev and qa share 40 identical `ITEM_CODE` values despite being
+  nominally disjoint" — were describing Excel's cell formatting, not the
+  data. The sets are disjoint. **This is the second time `03` §1a's
+  checkable claim has had to be replaced**; the first replacement (Tier-0 →
+  Tier-1) fixed the wrong tier while keeping the void overlap underneath it.
+- **The registry premise survives; its evidence was rebuilt from content.**
+  Fingerprinting P3-normalized rows on `brand + size_ml_equiv +
+  size_g_equiv + count` (sized rows only, 225 `dev` / 220 `qa`): **95 `dev`
+  rows repeat an earlier `dev` row**, and **136 of 220 sized `qa` rows (62%)
+  block against a fingerprint already resolved in `dev`**. Real repeat
+  structure, found in descriptions rather than corrupted keys.
+- **And that same measurement produced the design finding worth the most.**
+  Of the 48 fingerprints shared across `dev`/`qa`, some are the same product
+  (`aquafresh whitening pump 100ml` on both sides) and some are not
+  (`aquafresh extra care mint breeze 500ml` vs `aquafresh intense clean
+  invigorating 500ml`; `aloe dent coconut oil` vs `aloe dent charcoal`). The
+  fingerprint is a **blocking** key and must never be treated as a match —
+  which is what `03` §1a and §4 stage `[1]` already say, but the measurement
+  turns that from a design preference into a demonstrated requirement: a
+  block-key-as-match design merges Aquafresh Extra Care into Aquafresh
+  Intense Clean on the first run over real data. That is registry poisoning
+  (`05` §4) reachable immediately, and it is why P6's gate now reports
+  **two** numbers — block hit rate *and* within-block precision — rather
+  than one recall figure that would score highest exactly when the merge
+  logic is wrongest.
+**Affects:** `01-dataset-contract.md` new §14, §9 overlap bullet superseded,
+version → 1.4. `03-architecture.md` §1a (premise and efficiency-claim
+sections rewritten), §2, §3 (`RawRow.row_uid`, `CanonicalEntity.member_row_uids`,
+`GoldUrl.row_uid`), §4 stage 4 write-back, §5, version → 0.7.
+`04-build-standards.md` §1 P6 gate. `05-security-safety.md` §4 (audit log
+records `row_uid`). `specs/loader.md` new §4a + test. `specs/gold.md`
+criterion 3. `src/nimo/contracts.py`, `src/nimo/loader/dataset.py`,
+`src/nimo/gold/store.py`, and the three test modules.
+**Status:** standing
+
 ---
 
 # Open questions — resolve with organizers
 
 | # | Question | Blocking? | Status |
 |---|---|---|---|
-| Q1 | `dev.EXTERNAL_CODE` is rounded to 3 sig figs in 377/412 rows. Can a corrected sheet be provided? Separately: of the 35 rows that survive rounding, 17 are only 6–7 digits (e.g. `266611`, `1071580`) and are not valid GTIN lengths — are these a second corruption mode (dropped leading zeros) or genuinely short internal codes? Usable dev barcodes are 18, not 35. | High — kills barcode matching on dev | open |
+| Q1 | **Three columns are damaged by the same `0.00E+00` cell format, not one.** `EXTERNAL_CODE` is rounded in 377/412 `dev` rows; `NAN_KEY` in 65/412 `dev` and 67/412 `qa`; `ITEM_CODE` in 162/412 `dev` and 168/412 `qa` (`01` §14). The `NAN_KEY`/`ITEM_CODE` damage makes those columns unusable as row identifiers — 11 `dev` `NAN_KEY`s span multiple modules — and makes the apparent 40-value dev/qa `ITEM_CODE` overlap entirely spurious. Can uncorrupted versions of all three columns be provided? Separately: of the 35 rows that survive rounding, 17 are only 6–7 digits (e.g. `266611`, `1071580`) and are not valid GTIN lengths — are these a second corruption mode (dropped leading zeros) or genuinely short internal codes? Usable dev barcodes are 18, not 35. | High — kills barcode matching on dev | open |
 | Q2 | Is the expected `PRODUCT_URL` submission value a real URL, or the page title? `sample_output` contains titles. | High — wrong format = zero score | open |
 | Q3 | No URL ground truth exists in `dev`. How is URL selection (stage 4) scored? | High — cannot optimize what we cannot measure | open |
 | Q4 | `sample_output` shows an Amazon.in page as the answer for a `FR,GB` item. Is cross-market resolution acceptable? | Medium — determines whether market is a filter or a feature | open |

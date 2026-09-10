@@ -30,8 +30,12 @@ class DescTokens(BaseModel):  # parsed from desc_clean
 class RawRow(BaseModel):  # loader (P2) output — one per dev/qa row, pre-normalization
     model_config = ConfigDict(frozen=True)
 
-    nan_key: int
-    item_code: int
+    # "dev:0", "qa:117" — sheet + 0-based source row. THE row identity.
+    # NAN_KEY/ITEM_CODE are corrupted and collide across different products
+    # (`01` §14); never key anything on them.
+    row_uid: str
+    nan_key: int  # NIQ key, verbatim — traceability and submission only, NOT unique
+    item_code: int  # NIQ item id, verbatim — traceability and submission only, NOT unique
     barcode: str | None  # normalized string, None if absent OR corrupt (see `01` §3)
     # original string before nulling on corruption — audit/trace only,
     # NEVER used for matching or registry blocking
@@ -95,10 +99,27 @@ class CanonicalEntity(BaseModel):  # §1a — one persisted, resolved product
     page_title: str | None  # see [PROVISIONAL — Q2]
     characteristics: dict[str, str]  # applicable-only, post-gate values
     confidence: float
-    member_nan_keys: list[int]  # every row folded into this entity
+    # every row folded into this entity, by row_uid — NOT nan_key, which
+    # collides across different products (`01` §14)
+    member_row_uids: list[str]
     resolution_tier: Literal["tier0_exact", "tier1_ann", "tier2_retrieval", "tier3_llm"]
     created_at: datetime
     updated_at: datetime
+
+
+class GoldUrl(BaseModel):  # P4 — one hand-verified URL label, `03` §6 L3/L4
+    model_config = ConfigDict(frozen=True)
+
+    # "dev:N" — the row identity (`01` §14); nan_key would not be unique
+    row_uid: str
+    nan_key: int  # carried for traceability only
+    sheet: Literal["dev"]  # dev only — qa has no MODULE to stratify on
+    url: str | None  # set iff label == "correct"
+    page_title: str | None  # see [PROVISIONAL — Q2]
+    label: Literal["correct", "no_page_found", "ambiguous"]
+    # what was actually checked on the page — never "looks right"
+    evidence: str
+    verified_on: str  # ISO date; audit trail for a hand-produced artifact
 
 
 class BlockKey(BaseModel):  # §1a — blocking, computed at stage [1]

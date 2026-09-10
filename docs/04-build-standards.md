@@ -28,7 +28,7 @@ phase's final code. Values: `not started` | `in progress` | `done`.
 | P3 | Normalizer | `RETAILER_DESC` → `DescTokens` | 30 hand-written cases from real dev rows pass | done |
 | P4 | **Gold set** | ~50 hand-labelled URLs, stratified by module | Committed as `data/gold/urls.jsonl` | not started |
 | P5 | Module baseline | Text-only module classifier, no URL | Per-module stratified accuracy reported | not started |
-| P6 | **Registry & blocking** | `CanonicalEntity` store, exact-key blocking, Union-Find merge | Tier-1 fingerprint recall on the 40 dev/qa `ITEM_CODE` overlap rows — **not** Tier-0; barcode corruption hits this exact set too, Tier-0 provably cannot fire here (`01` §3, §9, `03` §1a) | not started |
+| P6 | **Registry & blocking** | `CanonicalEntity` store, exact-key blocking, Union-Find merge | Tier-1 block hit rate **and** within-block precision, on a content fingerprint (`brand + size + count`) — **not** on the dev/qa `ITEM_CODE` overlap, which `01` §14 shows is entirely a rounding artifact (all 40 corrupt, zero clean, pairs are different products). Measured ceiling for hit rate: 136/220 sized qa rows. Precision scored against the P4 gold set (`03` §1a) | not started |
 | P7 | SearxNG + retrieval | Self-hosted instance, 5 query strategies | Recall@20 measured on gold set | not started |
 | P8 | Fetch + extract | Cached fetcher, JSON-LD-first extractor | Frozen HTML fixtures for 10 retailers | not started |
 | P9 | Matcher | Layer A features + hard rules + registry write-back | Precision@1 on gold set | not started |

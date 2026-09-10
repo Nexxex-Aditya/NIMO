@@ -214,6 +214,29 @@ that just cost 49 rows' worth of correct retailer names once already.
 `retailer_raw` itself stays untouched, still the canonical key for both the
 `name` and `domain` lookups.
 
+## 4a. `row_uid` — the row identity (`01` §14)
+
+`row_uid = f"{sheet}:{position}"`, with `position` the 0-based index of the
+data row within its sheet (`"dev:0"` … `"dev:411"`, `"qa:0"` … `"qa:411"`).
+
+**This exists because `NAN_KEY` is not unique and cannot be used as a key.**
+`01` §14: 65 of 412 `dev` `NAN_KEY`s and 67 of 412 `qa` ones carry the same
+`0.00E+00` rounding corruption as `EXTERNAL_CODE`. Every duplicated
+`NAN_KEY` is one of those rounded values, and 11 `dev` `NAN_KEY`s span more
+than one `MODULE` — i.e. genuinely different products sharing a key
+(`147000000` is simultaneously a breath freshener, a Listerine mouthwash and
+an Oral-B toothbrush).
+
+`03` §2 keys every stage's on-disk artifact by row identity and `03` §5
+resumes the batch runner by it. Under a colliding key, one product's cached
+artifact is served for a different product and a completed row marks an
+unrelated row done — with no exception anywhere. `row_uid` is positional, so
+it is unique and deterministic by construction.
+
+`nan_key` and `item_code` are still carried verbatim on `RawRow`, for
+traceability and because the submission needs them — they are just never
+used as keys.
+
 ## 5. `COUNTRY` → `countries`
 
 `countries = [c.strip() for c in country_raw.split(",")]`. No further
@@ -413,6 +436,11 @@ reordering. Same file in, byte-identical `RawRow` sequence out, every run.
   actually fires, not just that the number is hardcoded somewhere unused.
 - **No network** — trivially true here, assert it anyway per the standing
   pattern (`04` §8).
+- **`row_uid` uniqueness (§4a):** unique across all 412 rows of each sheet,
+  no collision between sheets, and — as the counterpart assertion —
+  `NAN_KEY` is confirmed *not* unique, so the test fails loudly if the
+  organizers ever fix the source and the whole `01` §14 analysis needs
+  revisiting.
 
 Use small inline-string fixtures for the parsing-rule tests — fast, targeted,
 and each one names exactly which real input string it's protecting. Use the

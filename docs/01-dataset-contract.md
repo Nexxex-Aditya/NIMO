@@ -1,13 +1,15 @@
 # 01 — Dataset Contract
 
-Version 1.3 — 2026-09-10. File: `product_truth_agent_dataset.xlsx`.
+Version 1.4 — 2026-09-10. File: `product_truth_agent_dataset.xlsx`.
 Everything below was verified by direct inspection of the workbook, not
 inferred from the brief. Where the brief and the file disagree, **the file
 wins**. v1.1 corrected three blocking errors and several mischaracterizations
 found by a second, independent verification pass against the real file. v1.2
 resolves the encoding-repair gap that pass's own recommendation (§13) left
 unimplemented. v1.3 corrects §3's usable-barcode count (18, not 35),
-measured during P2 — see `02-decision-log.md` for all three rounds. Where
+measured during P2. v1.4 adds §14 — `NAN_KEY`/`ITEM_CODE` carry the same
+rounding corruption, which voids the dev/qa overlap §9 reported. See
+`02-decision-log.md` for all four rounds. Where
 this document and an earlier reading of it disagree, this version wins.
 
 ## 1. Sheets
@@ -255,12 +257,14 @@ surfacing (a candidate organizer question), not silently absorbing.
 - **Retailer**: **50 distinct across `dev`+`qa` combined** — not 44; that was
   a `dev`-only count. Heavy at Boots (49), Amazon GB (44+29), Positive
   Solutions (37), Brandbank (36) within `dev`. See §12 for parsing this field.
-- **dev/qa overlap**: 40 `ITEM_CODE` values are common to both — but this
-  overlap is **not usable as a clean-barcode Tier-0 demonstration**, the
-  barcode corruption defect (§3) hits it too. Separately, and not yet used in
-  any design decision: **23 `NAN_KEY` values are also common to both sets** —
-  a tighter, distinct overlap worth keeping in mind if `NAN_KEY` turns out to
-  be a more reliable repeat-observation signal than `ITEM_CODE`.
+- **dev/qa overlap: there isn't one. Superseded by §14 — read that instead.**
+  This section previously reported 40 shared `ITEM_CODE` values and 23 shared
+  `NAN_KEY` values. Measured in P4: **all 40 and all 23 are rounded,
+  corruption-artifact values; zero are clean**, and the row pairs they link
+  are visibly different products. The two sets are disjoint. Genuine repeat
+  structure does exist and is measurable — 95 within-`dev` repeats and 136 of
+  220 sized `qa` rows blocking against a `dev` fingerprint — but only by
+  content (`brand + size + count`), never by these keys. §14 has the numbers.
 
 ## 10. Loader acceptance criteria
 
@@ -385,3 +389,106 @@ what the library already does internally, more reliably than a hand-written
 heuristic would); set `*_encoding_suspect: bool` to whether the value
 actually changed. Implementation: `specs/loader.md` §2a.
 
+
+## 14. DEFECT — `NAN_KEY` and `ITEM_CODE` carry the same rounding corruption as `EXTERNAL_CODE`
+
+Found during P4. Not previously documented anywhere, and more consequential
+than the barcode defect because these are the columns the pipeline uses as
+**row identity**.
+
+`05` §5's latent-failure table already predicted this exact case — "the same
+class can recur anywhere a numeric-looking string crosses openpyxl/pandas,
+**including `NAN_KEY`/`ITEM_CODE`**". It does.
+
+### The measurement
+
+Cell `number_format` counts, read via `openpyxl` (the same method that found
+the barcode defect):
+
+| Column | `dev` rounded (`0.00E+00`) | `qa` rounded | `dev` distinct | `qa` distinct |
+|---|---|---|---|---|
+| `NAN_KEY` | **65 / 412** | **67 / 412** | 385 | 382 |
+| `ITEM_CODE` | **162 / 412** | **168 / 412** | 331 | 325 |
+
+### Consequence 1 — `NAN_KEY` is not a row identifier
+
+15 `NAN_KEY` values are duplicated in `dev` (42 rows affected), 16 in `qa`
+(46 rows). **Every single duplicated `NAN_KEY` is one of the rounded
+values** — the duplication is entirely an artifact of the corruption, not a
+property of the data.
+
+Worse, 11 `dev` `NAN_KEY`s map to rows in *different modules* — i.e.
+unrelated products colliding on one key. `NAN_KEY` `147000000` covers three
+distinct products:
+
+    621000000  BREATH FRESHENERS       "mumtaz after eat 300g..."
+    621000000  MOUTHWASH/ORAL RINSES   "d*listerine mouthwash original 250ml..."
+    621000000  TOOTHBRUSHES - MANUAL   "d*oral b toothbrush squish grip 4+..."
+
+This breaks two things `03` states directly: "Every stage writes its
+intermediate artifact to disk keyed by `NAN_KEY`" (§2) and "Batch runner
+processes by `NAN_KEY`, skips completed" (§5). Under collision, one product's
+cached artifact is served for a different product, and a completed row marks
+an unrelated row complete — silently, with no exception. See `03` §3's
+`row_uid` and the decision log.
+
+### Consequence 2 — the dev/qa overlap is entirely spurious
+
+This is the load-bearing one. `01` §9 and `03` §1a both rested on it:
+
+- **All 40** of the "shared" `dev`/`qa` `ITEM_CODE` values are rounded.
+  **Zero** are clean. The 102 `dev` rows carrying one are matched against
+  `qa` rows that are visibly different products:
+
+      ITEM_CODE 507000000  dev: "colgate sensitive fresh stripe toothpaste tube 75ml"
+                           qa : "pearl drops strong white toothpaste, polished mint..."
+      ITEM_CODE 509000000  dev: "jason coconut mint strengthening toothpaste 119g"
+                           qa : "ultradex one go unflavoured mouthwash on the go 10 sachets"
+
+- **All 23** of the "shared" `NAN_KEY` values are likewise rounded. Zero clean.
+
+So "dev and qa share 40 identical `ITEM_CODE` values despite being nominally
+disjoint sets" — quoted in `03` §1a as evidence that the same physical
+product recurs — **is an artifact of Excel's cell formatting, not a finding
+about the data.** The two sets are disjoint, as their names suggest.
+
+### Consequence 3 — real repeat structure exists, but must be measured by content
+
+The registry's motivating premise survives; only the evidence for it had to
+be replaced. Measured over P3-normalized rows, fingerprinting on
+`brand + size_ml_equiv + size_g_equiv + count` and counting only rows with a
+parsed size (225 `dev`, 220 `qa`):
+
+- **95 `dev` rows are a repeat of an earlier `dev` row** by fingerprint.
+- **136 of 220 sized `qa` rows (62%)** block against a fingerprint already
+  seen in `dev`.
+
+That is genuine, content-derived repeat structure, and it is what P6 should
+be measured against — not the corrupted key overlap.
+
+**But the fingerprint is a *blocking* key, not a match key, and the same
+measurement shows why.** Of the 48 fingerprints shared between `dev` and
+`qa`, some are the same product and some plainly are not:
+
+    ('AQUAFRESH', 100.0, None, 1)  dev "aquafresh whitening pump 100ml"
+                                   qa  "aquafresh whitening pump 100ml"          <- same
+    ('AQUAFRESH', 500.0, None, 1)  dev "aquafresh extra care mint breeze mouthwash 500ml"
+                                   qa  "aquafresh intense clean invigorating mouthwash 500ml"  <- different
+    ('ALOE DENT', 100.0, None, 1)  dev "aloe dent coconut oil toothpaste"
+                                   qa  "aloe dent charcoal toothpaste"            <- different
+
+This is exactly the division of labour `03` §1a and §4 stage `[1]` already
+specify — block cheaply on identity fields, then discriminate *within* the
+block on variant terms — and it confirms that the Tier-1 similarity step is
+load-bearing rather than a refinement. A design that treated a shared block
+key as a match would merge Aquafresh Extra Care with Aquafresh Intense Clean:
+registry poisoning (`05` §4), on real data, on the first run.
+
+### Handling
+
+- Row identity moves to `RawRow.row_uid` (`03` §3) — `"{sheet}:{index}"`,
+  positional, unique and deterministic. `NAN_KEY`/`ITEM_CODE` are retained
+  verbatim for traceability and submission, never used as keys.
+- P6's gate is restated against the content fingerprint (`04` §1, `03` §1a).
+- Ask the organizers for uncorrupted `NAN_KEY`/`ITEM_CODE` columns — folded
+  into Q1, which already covers the same defect in `EXTERNAL_CODE`.
