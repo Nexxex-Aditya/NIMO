@@ -26,7 +26,15 @@ def _read_list(data: object, key: str, path: Path) -> frozenset[str]:
             f"an empty vocabulary would silently disable a whole normalization rule "
             f"rather than failing (`04` §4)."
         )
-    return frozenset(str(value).strip().lower() for value in values)
+    for value in values:
+        if not isinstance(value, str):
+            raise VocabError(
+                f"{path}: `{key}` contains {value!r} ({type(value).__name__}), not a string. "
+                f"YAML 1.1 parses bare `on`, `off`, `yes` and `no` as booleans — quote them. "
+                f"Stringifying instead (the previous behaviour) turned the stopword `on` into "
+                f'"true" and silently disabled it (`05` §5).'
+            )
+    return frozenset(value.strip().lower() for value in values)
 
 
 @lru_cache(maxsize=1)

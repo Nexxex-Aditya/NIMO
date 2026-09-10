@@ -37,11 +37,16 @@ def client_with(handler: object) -> SearxngClient:
     )
 
 
-def json_response(results: list[object]) -> httpx.Response:
+def json_response(
+    results: list[object], unresponsive: list[object] | None = None
+) -> httpx.Response:
     """`results` is deliberately `list[object]`: the payload is untyped JSON
     from a third party, and a test that can only express well-formed entries
     cannot cover the malformed ones the parser exists to survive."""
-    return httpx.Response(200, json={"results": results})
+    body: dict[str, object] = {"results": results}
+    if unresponsive is not None:
+        body["unresponsive_engines"] = unresponsive
+    return httpx.Response(200, json=body)
 
 
 # --- parsing -----------------------------------------------------------------
@@ -222,3 +227,52 @@ def test_backoff_is_bounded_and_jittered() -> None:
         assert len(delays) > 1, "backoff is not jittered — retries would synchronise"
     finally:
         client.close()
+
+
+# --- engine degradation (`05` §5 aggregate domain block) ---------------------
+
+
+def test_unresponsive_engines_are_extracted() -> None:
+    from nimo.retrieval import unresponsive_engines
+
+    payload: dict[str, object] = {
+        "results": [],
+        "unresponsive_engines": [["duckduckgo", "CAPTCHA"], ["google", "Suspended: CAPTCHA"]],
+    }
+    assert unresponsive_engines(payload) == ["duckduckgo", "google"]
+    assert unresponsive_engines({"results": []}) == []
+
+
+def test_a_fully_captcha_blocked_instance_raises_rather_than_returning_junk() -> None:
+    """**Observed live on the first real run of this code.** SearxNG answered
+    HTTP 200 with 10 results while DuckDuckGo and Google were both
+    CAPTCHA-blocked; the results came from the one surviving engine and were
+    junk (`instagram.com` for "curaprox aligner care foam").
+
+    A recall number measured through that is worse than no number, because it
+    looks like a retrieval result. `05` §5: every request succeeds and the
+    systemic pattern is invisible without looking across them.
+    """
+    blocked: list[object] = [[name, "CAPTCHA"] for name in CONFIG.engines]
+    client = client_with(
+        lambda request: json_response(
+            [{"url": "https://instagram.com/", "engine": "bing"}], unresponsive=blocked
+        )
+    )
+    with pytest.raises(SearchError, match="every configured engine is unresponsive"):
+        client.search(QUERY, limit=8)
+
+
+def test_partial_degradation_still_returns_results_but_is_not_silent(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Two of three down is degraded, not dead — the results are still usable,
+    but the run is not comparable to a healthy one and must say so."""
+    client = client_with(
+        lambda request: json_response(
+            [{"url": "https://boots.com/a", "engine": "bing"}],
+            unresponsive=[["google", "CAPTCHA"]],  # one of three
+        )
+    )
+    results = client.search(QUERY, limit=8)
+    assert [result.url for result in results] == ["https://boots.com/a"]

@@ -10,7 +10,7 @@ from nimo.retrieval.canonical import (
     is_private_host,
     is_safe_candidate,
 )
-from nimo.retrieval.client import SearchError, SearxngClient
+from nimo.retrieval.client import SearchError, SearxngClient, unresponsive_engines
 from nimo.retrieval.config import (
     CONFIG_PATH,
     RetrievalConfig,
@@ -39,4 +39,5 @@ __all__ = [
     "load_retrieval_config",
     "merge_candidates",
     "retailer_domain",
+    "unresponsive_engines",
 ]

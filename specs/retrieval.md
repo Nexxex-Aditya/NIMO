@@ -13,28 +13,82 @@ that is every row, which the P6a runner already reports honestly as
 
 ---
 
-## 1. Gate status — read this before trusting a recall number
+## 1. Gate status — the number is void, and why matters more than the number
 
-`04` §1's P7 gate is "Recall@20 measured on gold set". **That measurement is
-blocked here, for two independent reasons, and neither is fixable by writing
-more code.**
+`04` §1's P7 gate is "Recall@20 measured on gold set". **It has now been run
+against a live index, and the result must not be reported as a recall rate.**
 
-1. **~~No live SearxNG.~~ RESOLVED 2026-09-11** — the daemon is up (Docker
-   29.7.2) and the image is pinned by digest, verified by `docker pull`
-   rather than copied from documentation. See §1a for what the live run
-   actually measured.
-2. **The gold set is 6 rows, 5 with URLs** (P4, partial by design). Recall@20
-   over 5 URLs is not a measurement; it is an anecdote with a percentage sign.
-   `specs/gold.md` is explicit that fabricating entries to reach a round
-   number is worse than a missing one, and that reasoning applies just as
-   hard to the phase that consumes them.
+### 1a. What the live run actually measured
 
-So this phase ships **everything that is verifiable without a live index** —
-query construction, URL canonicalization, candidate merging, the client
-wrapper against frozen fixtures — with the strategy-coverage measurements
-below, which are real and were taken against all 824 rows. The recall number
-is deferred, not estimated. Running it needs: `docker compose up -d searxng`,
-then more gold rows labelled.
+SearxNG came up (Docker 29.7.2, image pinned by digest) and the full path
+worked end to end: queries built, index queried, results canonicalized,
+merged, capped. The first few queries returned exactly what they should —
+`aquafresh whitening pump 100ml` yielded four real retailer product pages.
+
+Then the results turned to noise: massage services, `cisa.gov`, `zhihu.com`,
+a Hyderabad shopping mall. SearxNG's own response said why:
+
+    unresponsive_engines: [["duckduckgo", "CAPTCHA"],
+                           ["google", "Suspended: CAPTCHA"]]
+
+**Two of three engines were CAPTCHA-blocked after a few dozen queries from a
+single IP**, and the third (Bing) was returning `instagram.com` for
+`curaprox aligner care foam`. The measured "Recall@20 = 1/5" is a measurement
+of rate limiting, not of retrieval, and is recorded here only so nobody
+re-derives it and believes it.
+
+### 1b. The three findings that came out of it, which are worth more
+
+1. **The client ignored `unresponsive_engines`.** SearxNG answers HTTP 200
+   with a full-looking `results` list while blocked, reporting the fact only
+   in that field. A degraded run was therefore indistinguishable from a
+   healthy one — `05` §5's "aggregate domain block" exactly: every request
+   succeeds, the systemic pattern is invisible. Now: all engines blocked
+   raises `SearchError`; partial degradation logs a named warning.
+2. **S3 omitted the product-type noun**, on 171 of 412 `dev` rows. §2a.
+3. **A YAML boolean had silently disabled a stopword.** §2a.
+
+### 1c. What this means for the architecture, and it is not small
+
+`03` §4 stage 2 assumes SearxNG can serve candidate generation for 412 rows.
+Measured, a single IP gets CAPTCHA-blocked by Google and DuckDuckGo within a
+few dozen queries. **412 rows × 3–5 strategies is 1200–2000 queries.** At the
+observed block rate that run cannot complete against those engines, and the
+`min_interval_s: 0.25` politeness delay is nowhere near enough.
+
+This is direct evidence for **Q6** ("Is scraping permitted, and are there
+rate/robots constraints for the demo?") and it needs an answer before P7's
+gate can be closed honestly. The options, none of which is free:
+
+- **A paid search API** (Brave, Serper, Bing Web Search). Costs money, but is
+  the only option that reliably serves 2000 queries and is designed to be
+  queried automatically.
+- **Engines that tolerate automation** — SearxNG can be configured toward
+  sources that do not CAPTCHA. Lower result quality, unknown coverage of UK
+  retail.
+- **Drastically reduced scope for the demo** — `04` §1's P15 gate is "runs
+  end-to-end on 10 sample rows", which ~30 queries can serve. This works for
+  the demo and does not scale to a full `qa` submission.
+- **A long crawl with heavy backoff**, hours rather than minutes, checkpointed
+  through the P6a runner's resume path (which exists and works).
+
+Recording it rather than picking: this is a cost/scope decision, and `03` §7's
+"rejected alternatives" does not cover paid APIs because the constraint was
+not known when it was written.
+
+### 1d. The other blocker, unchanged
+
+**The gold set is 6 rows, 5 with URLs.** Recall@20 over 5 URLs is not a
+measurement even with healthy engines. Worse, the live run showed the metric
+itself is questionable: for `dev:410` retrieval surfaced
+`vita-point.co.uk/eucryl-toothpowder-...-freshmint-50g` and
+`pharmazondirect.com/products/eucryl-toothpowder-freshmint-flavour-50g` — both
+apparently the correct product — while the gold label names
+`chemist-4-u.com`. **Scoring "did we find *the* labelled URL" penalises
+finding an equally valid page on a different retailer**, which `01` §5 already
+hinted at when the organizers' own reference answer resolved a GB item to
+Amazon.in. Whatever replaces this gate should score *the product*, not the
+URL string.
 
 ## 2. Query strategies — measured coverage
 
@@ -67,6 +121,36 @@ S4 needs a retailer→domain mapping. `config/retailers.yaml` maps **28 of 50**
 retailers to a domain; the rest are marketplaces, panels or aggregators with
 no single product domain, and `03` §4 stage 2 says unmapped retailers skip S4.
 That is why S4 reaches only ~54–62% of rows.
+
+## 2a. Two defects the live run exposed in query construction
+
+**S3 omitted the product-type noun.** P3 extracts `toothpaste`, `mouthwash`,
+`toothbrush`, `foam`, `spray` into `format_hints`, not `variant_terms`, so an
+identity phrase built from brand + variants + size drops the single most
+search-relevant word. Measured: 252 of 412 `dev` rows carry at least one hint
+and **171 had one silently omitted** from their query. Live, before the fix:
+
+    dev:68  "ultradex one go mouthwash on the go liquid sachets, 10 x 15ml"
+            -> S3 "ULTRADEX one go on liquid 15ml"        (no "mouthwash")
+    dev:92  "curaprox aligner care foam 40 ml"
+            -> S3 "CURAPROX aligner care 40ml"             (no "foam")
+
+The first returned Stack Overflow and Server Fault results, because
+"one go on liquid" is not a product query. `_identity_phrase` now includes the
+hints. `dev:37`'s gold URL moved from rank 3 to rank 1 as a result.
+
+**A YAML boolean had disabled a stopword since P3.** `config/normalize.yaml`
+listed `- on` unquoted, and **YAML 1.1 parses bare `on` as the boolean
+`True`** (as it does `off`, `yes`, `no`). `vocab.py` stringified it to
+`"true"`, so the stopword set contained `"true"` and the word `on` was never
+stripped — visible in `dev:68`'s variant terms as `['one','go','on','liquid']`.
+
+This is `05` §5's "type coercion across a serialization boundary" — the same
+class as the `EXTERNAL_CODE` rounding defect — occurring in our own config
+rather than the organizers'. Two fixes, because the value alone is not enough:
+the entry is quoted, **and** `vocab.py` now raises on a non-string entry
+rather than stringifying it, so the next one fails at load instead of
+degrading silently. A scan of every `config/*.yaml` found no other instance.
 
 ## 3. URL canonicalization
 

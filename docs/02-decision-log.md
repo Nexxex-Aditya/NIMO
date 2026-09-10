@@ -1388,6 +1388,101 @@ New `tests/retrieval/test_client.py`. `tests/registry/test_store.py`,
 **Status:** standing
 
 
+## 2026-09-11 — First live retrieval run: the recall number is void, and the three defects it exposed are worth more
+**Decision:** SearxNG brought up (Docker daemon now running, image pinned by
+digest) and P7 run against a live index for the first time. **The Recall@20
+gate is still not met, and the number measured must not be reported** — but
+for a completely different reason than the earlier "no live index", and the
+new reason is an architectural constraint rather than a missing prerequisite.
+
+**1. Google and DuckDuckGo CAPTCHA-blocked the instance after a few dozen
+queries.** The first queries returned real retailer pages —
+`aquafresh whitening pump 100ml` yielded four genuine product listings. Then
+results turned to noise: massage services, `cisa.gov`, `zhihu.com`, a
+Hyderabad shopping mall. SearxNG said why, in a field the client was ignoring:
+
+    unresponsive_engines: [["duckduckgo","CAPTCHA"],
+                           ["google","Suspended: CAPTCHA"]]
+
+Two of three engines blocked; the survivor (Bing) returned `instagram.com`
+for `curaprox aligner care foam`. **The "Recall@20 = 1/5" this produced
+measures rate limiting, not retrieval**, and is recorded in
+`specs/retrieval.md` §1a only so nobody re-derives it and believes it.
+
+**2. The client ignored `unresponsive_engines` — the defect that made this
+dangerous rather than merely annoying.** SearxNG answers HTTP 200 with a
+full-looking `results` list while blocked. A throttled run was therefore
+byte-for-byte indistinguishable from a healthy one at the client boundary:
+every request succeeded, results came back, nothing raised. That is `05` §5's
+"aggregate domain block" precisely — "each fetch fails loud individually, but
+the systemic pattern is invisible without looking across rows" — except worse,
+because nothing failed at all. Fixed: all engines unresponsive raises
+`SearchError`; partial degradation logs a named warning. Tested against the
+exact payload observed.
+
+**3. S3 omitted the product-type noun, on 171 of 412 rows.** P3 puts
+`toothpaste`, `mouthwash`, `toothbrush`, `foam` into `format_hints`, not
+`variant_terms`, so an identity phrase of brand + variants + size drops the
+most search-relevant word in the description:
+
+    dev:68 "ultradex one go mouthwash on the go liquid sachets, 10 x 15ml"
+           -> S3 "ULTRADEX one go on liquid 15ml"          (no "mouthwash")
+
+which returned Stack Overflow results, because "one go on liquid" is not a
+product query. 252 of 412 `dev` rows carry a hint; 171 had one omitted. Fixed;
+`dev:37`'s gold URL moved from rank 3 to rank 1 immediately.
+
+**4. A YAML boolean had silently disabled a stopword since P3.**
+`config/normalize.yaml` listed `- on` unquoted, and **YAML 1.1 parses bare
+`on` as the boolean `True`** (likewise `off`, `yes`, `no`). `vocab.py`
+stringified it to `"true"`, so the stopword set held `"true"` and the word
+`on` was never stripped — visible as `['one','go','on','liquid']` in
+`dev:68`'s variant terms.
+
+This is `05` §5's "type coercion across a serialization boundary", the same
+class as the `EXTERNAL_CODE` rounding defect, **occurring in our own config
+rather than the organizers' data.** Fixed twice over, because the value alone
+is not the fix: the entry is quoted, *and* `vocab.py` now raises on a
+non-string list entry instead of stringifying it, so the next occurrence fails
+at load rather than degrading silently. A scan of every `config/*.yaml` found
+no other instance. Re-measured after the fix: P5's LOO headline is unchanged
+at 80.3% / 49.7%, and P6's pinned figures held within tolerance.
+
+**5. The architectural consequence, which is the real output of this run.**
+`03` §4 stage 2 assumes SearxNG can serve candidate generation for 412 rows.
+**412 rows x 3-5 strategies is 1200-2000 queries**, and a single IP is blocked
+after a few dozen. `min_interval_s: 0.25` is nowhere near sufficient. The
+options are recorded in `specs/retrieval.md` §1c rather than chosen here,
+because this is a cost and scope decision, not a technical one: a paid search
+API (Brave/Serper/Bing), engines that tolerate automation at lower quality, a
+demo scoped to the 10 rows `04` §1's P15 gate already names, or an hours-long
+backed-off crawl through the P6a runner's resume path. `03` §7's rejected
+alternatives does not cover paid APIs because this constraint was not known
+when it was written.
+
+**Q6 raised from Medium to High** and rewritten: the binding constraint is on
+the *search* side, not the retailer side, which is not what the question
+originally assumed.
+
+**6. And a finding about the gate itself.** For `dev:410` retrieval surfaced
+`vita-point.co.uk/eucryl-toothpowder-freshmint-50g` and
+`pharmazondirect.com/products/eucryl-toothpowder-freshmint-flavour-50g` — both
+apparently the correct product — while the gold label names `chemist-4-u.com`.
+**Scoring "did we find *the* labelled URL" penalises finding an equally valid
+page on a different retailer.** `01` §5 hinted at this when the organizers'
+own reference answer resolved a GB item to Amazon.in. Whatever replaces this
+gate should score the *product*, not the URL string — which also weakens the
+case for hand-labelling many more single-URL gold rows.
+**Affects:** `src/nimo/retrieval/client.py` (`unresponsive_engines`, the
+raise, the warning), `queries.py` (`_identity_phrase` includes format hints),
+`config/normalize.yaml` (quoted `"on"`), `src/nimo/normalize/vocab.py` (rejects
+non-string entries), `tests/retrieval/test_client.py` (+3),
+`specs/retrieval.md` §1/§2a (rewritten), `04-build-standards.md` §1 P7 row,
+Q6 in the open-questions table.
+**Status:** standing — P7's gate stays open, now blocked on a Q6 decision
+rather than on infrastructure.
+
+
 ---
 
 # Open questions — resolve with organizers
@@ -1399,7 +1494,7 @@ New `tests/retrieval/test_client.py`. `tests/registry/test_store.py`,
 | Q3 | No URL ground truth exists in `dev`. How is URL selection (stage 4) scored? | High — cannot optimize what we cannot measure | open |
 | Q4 | `sample_output` shows an Amazon.in page as the answer for a `FR,GB` item. Is cross-market resolution acceptable? | Medium — determines whether market is a filter or a feature | open |
 | Q5 | `sample_output` carries `GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT`, absent from `dev`/`qa`. Required in submission? | Medium | open |
-| Q6 | Is scraping retailer sites permitted, and are there rate/robots constraints for the demo? | Medium | open |
+| Q6 | Is scraping retailer sites permitted, and are there rate/robots constraints for the demo? **Now load-bearing, and the constraint is on the search side, not the retailer side.** Measured 2026-09-11: a self-hosted SearxNG was CAPTCHA-blocked by Google and DuckDuckGo after a few dozen queries from one IP. 412 rows x 3-5 strategies is 1200-2000 queries, which no free engine will serve. Is a paid search API (Brave/Serper/Bing) acceptable, or should the demo be scoped to the 10 rows `04` §1's P15 gate names? Separately, P4 already found Tesco serving a bot interstitial to a browser, so the retailer side is real too. | **High — blocks P7's gate and caps the demo** | open |
 | Q7 | Which LLM is provided, with what context window and rate limit? Multimodal available for image evidence? | High — image comparison is an explicit requirement | **partially resolved 2026-09-10** — CIS LLM, model `hack-fest-gpt-5.6-luna`, `azure-ai-inference` SDK, api_version `2025-03-01-preview`; key in gitignored `.env`. **New constraint found by probing: the endpoint is internal-only** — it resolves to `10.249.224.116` (RFC1918) and TCP 443 times out off-network, so it needs the NIQ VPN. Context window, rate limit and multimodal support are still unstated — re-ask, and confirm connectivity on-network before P11/P12 execute. |
 | Q8 | `dev` row with module `TOOTH CLEANING - GUM/TABLETS (NATURAL TEETH)` has `GLOBAL_PACKAGING_MATERIAL = 'GLASS'`, but that module's allowed values are `['CARDBOARD', 'PAPER', 'PLASTIC']` — no `GLASS`. Confirmed organizer data error, not a parsing issue on our side. Is a corrected value available? | Low — 1 of 412 rows, but worth flagging | open |
 | Q9 | `dev.BRAND` contains a double-encoded-UTF-8 mojibake value (`'JASÃƒâ€“N'`, 3 rows, presumably `JASÖN`); several `RETAILER_DESC` rows in both `dev`/`qa` are similarly corrupted. Can corrected-encoding sheets be provided, or should we repair on load? | Medium — degrades retrieval query quality for affected rows | open |

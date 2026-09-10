@@ -29,8 +29,12 @@ services:
       - ./config/searxng:/etc/searxng:rw
     environment:
       - SEARXNG_BASE_URL=http://localhost:8080/
-      # A single-user local instance. No secret is baked into the repo; if the
-      # image asks for one, generate it into .env (gitignored) — `04` §9.
+      # REQUIRED. SearxNG refuses to start with its default `ultrasecretkey`
+      # and kills the worker on boot, which presents as a container stuck in a
+      # restart loop rather than as a config error — the log line naming the
+      # secret is three lines above the exit. Generated into `.env`
+      # (gitignored, `04` §9); never a literal here.
+      - SEARXNG_SECRET=${SEARXNG_SECRET:?set SEARXNG_SECRET in .env - see .env.example}
     restart: unless-stopped
     cap_drop:
       - ALL

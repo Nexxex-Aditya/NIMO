@@ -58,9 +58,31 @@ def retailer_domain(retailer_raw: str, retailers_path: Path) -> str | None:
 
 
 def _identity_phrase(query: ProductQuery) -> str:
-    """Brand + variant terms + size, the S3/S4 payload."""
-    parts = [query.brand, *query.tokens.variant_terms]
+    """Brand + variant terms + **format hints** + size — the S3/S4 payload.
+
+    **The format hints are where the product-type noun lives, and omitting
+    them made S3 nonsense.** P3 extracts `toothpaste`, `mouthwash`,
+    `toothbrush`, `foam`, `spray` into `format_hints` rather than
+    `variant_terms`, so an identity phrase built from variants alone drops the
+    single most search-relevant word in the description. Measured on `dev`:
+    252 of 412 rows carry at least one hint and **171 had one silently
+    omitted** from their query.
+
+    What that produced, live, before the fix:
+
+        dev:68  "ultradex one go mouthwash on the go liquid sachets, 10 x 15ml"
+                -> S3 "ULTRADEX one go on liquid 15ml"      (no "mouthwash")
+        dev:92  "curaprox aligner care foam 40 ml"
+                -> S3 "CURAPROX aligner care 40ml"           (no "foam")
+
+    The first returned Stack Overflow and Server Fault pages, because
+    "one go on liquid" is not a product query. `03` §4 stage 2's S3 shape is
+    "brand + variant + size"; hints are part of the variant signal, not a
+    separate axis, and `MatchFeatures.format_consistent` scoring them
+    downstream does not help a query that never mentioned the product.
+    """
     tokens = query.tokens
+    parts = [query.brand, *tokens.variant_terms, *tokens.format_hints]
     if tokens.size_value is not None and tokens.size_unit:
         parts.append(f"{tokens.size_value:g}{tokens.size_unit}")
     return " ".join(part for part in parts if part).strip()

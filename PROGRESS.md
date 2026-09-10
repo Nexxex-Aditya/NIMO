@@ -16,12 +16,15 @@ Gate (`04` §1): frozen HTML fixtures for 10 retailers. Authority: `03` §4
 stage `[3]`, `04` §6, `05` §2 and `05` §6 (the full DoD additions apply — P8
 is a fetch module).
 
-**P7's gate is open, deliberately.** Recall@20 needs (a) a live SearxNG —
-`docker compose up -d searxng`, the compose file ships pinned, but Docker's
-daemon is not running on this machine — and (b) more than 6 labelled gold
-rows, since Recall@20 over 5 URLs is an anecdote with a percentage sign. No
-recall number was estimated. Everything offline-verifiable ships and is
-tested.
+**P7's gate is open and now blocked on a DECISION, not on infrastructure.**
+SearxNG is up (`docker compose up -d searxng`, needs `SEARXNG_SECRET` in
+`.env`) and the full path works end to end. But **Google and DuckDuckGo
+CAPTCHA-blocked the instance after a few dozen queries from one IP**, so the
+1/5 recall measured is rate limiting, not retrieval, and is void. 412 rows x
+3-5 strategies is 1200-2000 queries; no free engine will serve that.
+`specs/retrieval.md` §1c lists the four options (paid search API, automation-
+tolerant engines, demo scoped to 10 rows, or an hours-long backed-off crawl).
+**This needs a cost/scope decision — see Q6, now High.**
 
 **P8 inherits three things from P7 that are easy to get wrong:**
 `05` §2's private-range check must re-run after **every redirect hop**, not
@@ -55,7 +58,7 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (430 passed)
+  uv run pytest                          -> EXIT 0  (449 passed)
 
 ## Do NOT re-do
 

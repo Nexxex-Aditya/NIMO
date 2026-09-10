@@ -88,7 +88,14 @@ stopwords:
   - de
   - a
   - in
-  - on
+  # QUOTED, and it must stay quoted. YAML 1.1 parses bare `on` as the
+  # BOOLEAN True (so do `off`, `yes`, `no`). Unquoted, this entry became
+  # `True`, the loader stringified it to "true", and the stopword "on" was
+  # never stripped — visible downstream as junk in query construction
+  # ("ULTRADEX one go on liquid 15ml"). `05` §5 type coercion across a
+  # serialization boundary, in our own config. `vocab.py` now rejects a
+  # non-string entry loudly rather than stringifying it.
+  - "on"
   - pack
   - packs
   - count

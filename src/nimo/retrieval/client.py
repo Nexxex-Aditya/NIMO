@@ -11,6 +11,7 @@ public instances rate-limit and are not reproducible.
 
 import random
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import httpx
@@ -119,7 +120,7 @@ class SearxngClient:
                         f"not retried — a 4xx fails identically on every attempt (`04` §6)."
                     )
                 else:
-                    return _parse_results(response, limit)
+                    return _parse_results(response, limit, self.config)
 
             if attempt < self.config.max_retries:
                 delay = self._backoff(attempt)
@@ -134,12 +135,29 @@ class SearxngClient:
         )
 
 
-def _parse_results(response: httpx.Response, limit: int) -> list[SearchResult]:
+def _parse_results(
+    response: httpx.Response, limit: int, config: RetrievalConfig
+) -> list[SearchResult]:
     """Parse SearxNG's JSON into `SearchResult`s, rank-ordered.
 
     A malformed payload raises rather than yielding an empty list — see
     `search`'s note on why "no results" and "the backend broke" must stay
     distinguishable.
+
+    **`unresponsive_engines` is checked, not ignored.** SearxNG answers HTTP
+    200 with a full-looking `results` list even when its upstreams have
+    CAPTCHA-blocked it, and reports the fact only in this field. Observed
+    live on the first real run of this code:
+
+        unresponsive_engines: [["duckduckgo","CAPTCHA"],
+                               ["google","Suspended: CAPTCHA"]]
+
+    ...while `results` still held 10 entries — from the one surviving engine,
+    and they were junk (`instagram.com` for "curaprox aligner care foam"). A
+    client that ignores this field cannot tell a healthy run from a throttled
+    one, which is `05` §5's "aggregate domain block": every request succeeds,
+    the systemic pattern is invisible, and the recall number it produces
+    measures rate limiting rather than retrieval.
     """
     try:
         payload = response.json()
@@ -149,6 +167,24 @@ def _parse_results(response: httpx.Response, limit: int) -> list[SearchResult]:
         raise SearchError(
             "SearxNG response has no `results` list — check that JSON format is enabled in "
             "`config/searxng/settings.yml` (`search.formats` must include `json`)."
+        )
+
+    degraded = unresponsive_engines(payload)
+    if degraded and len(degraded) >= len(config.engines):
+        raise SearchError(
+            f"every configured engine is unresponsive: {degraded}. Results from a fully "
+            f"CAPTCHA-blocked instance are not retrieval output and must not be scored. "
+            f"Wait for the block to lapse, reduce request rate (`min_interval_s`), or "
+            f"configure engines that permit automated queries."
+        )
+    if degraded:
+        # Loud, and named. `05` §5 wants the per-domain success rate in the run
+        # summary; until P8 aggregates it, this at least makes a degraded run
+        # impossible to mistake for a healthy one in the logs.
+        log.warning(
+            "searxng_engines_unresponsive",
+            engines=degraded,
+            healthy=len(config.engines) - len(degraded),
         )
 
     results: list[SearchResult] = []
@@ -168,3 +204,22 @@ def _parse_results(response: httpx.Response, limit: int) -> list[SearchResult]:
             )
         )
     return results
+
+
+def unresponsive_engines(payload: Mapping[str, object]) -> list[str]:
+    """Engine names SearxNG reported as unresponsive for this query.
+
+    Exposed because a measurement run must be able to refuse to report a
+    number taken while engines were blocked — a recall figure measured through
+    a CAPTCHA is worse than no figure, since it looks like a retrieval result.
+    """
+    raw = payload.get("unresponsive_engines")
+    if not isinstance(raw, list):
+        return []
+    names: list[str] = []
+    for entry in raw:
+        if isinstance(entry, list | tuple) and entry and isinstance(entry[0], str):
+            names.append(entry[0])
+        elif isinstance(entry, str):
+            names.append(entry)
+    return sorted(set(names))
