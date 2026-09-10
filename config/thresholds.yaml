@@ -1,0 +1,6 @@
+# All values below are placeholders. Tune against the gold set (P4) —
+# never hand-pick. See 03-architecture.md §1a, §4.
+tau_ann: 0.0          # TODO tune at P6
+tau_merge: 0.0        # TODO tune at P9 — must exceed general acceptance threshold
+tau_abstain: 0.0      # TODO tune at P10 — see [PROVISIONAL - Q3]
+runner_up_gap_threshold: 0.0   # TODO tune at P9/P11

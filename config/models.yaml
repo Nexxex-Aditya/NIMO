@@ -1,0 +1,4 @@
+# Provisional pending Q7 (02-decision-log.md). Do not fill in a guessed
+# provider/model — leave blank until the organizer answer is known.
+llm_provider: null
+llm_model: null

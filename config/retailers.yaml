@@ -1,0 +1,9 @@
+# retailer_raw (exact RETAILER column value) -> {name, domain}
+# `name`: REQUIRED complete for all 50 distinct values before P2 is done.
+# `domain`: may stay partial until P7 (03 §4 stage 2, S4).
+"P00R4 (GB) BOOTS":
+  name: BOOTS
+  domain: boots.com
+"BOOTS (GB) (HOMESCAN)":
+  name: BOOTS
+  domain: boots.com

@@ -1,0 +1,77 @@
+[project]
+name = "nimo"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic>=2.6",
+    "pydantic-settings>=2.2",   # P0 — typed, validated env/config loading
+    "pyyaml>=6.0",              # P0 — config/*.yaml
+    "structlog>=24.1",          # P0 — structured JSON logs, `04` §10
+    "pandas>=2.2",              # P2 — loader
+    "openpyxl>=3.1",            # P2 — loader; also direct cell access for EXTERNAL_CODE
+    "ftfy>=6.2",                # P2 — encoding-corruption repair, `01` §13
+    "httpx>=0.27",              # P7/P8 — retrieval, fetch
+    "tenacity>=8.2",            # P8 — retry with backoff+jitter, `04` §6
+    "trafilatura>=1.8",         # P8 — boilerplate-stripped body text
+    "extruct>=0.18",            # P8 — JSON-LD / microdata / OpenGraph extraction
+    "rapidfuzz>=3.6",           # P9 — Layer A text-similarity features
+]
+# LLM client deliberately NOT declared yet — provider/SDK depends on Q7
+# (02-decision-log.md open questions). Add when that resolves, scoped to P11.
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+# Without this table, uv treats the project as virtual (non-packaged) and
+# never installs `nimo` into the venv — `import nimo` then fails everywhere,
+# including test collection. uv_build over hatchling/setuptools: this project
+# already commits to uv for everything else (04 §2, §9), and uv_build needs
+# no config beyond this given `src/nimo` already matches `[project].name`.
+
+[dependency-groups]
+dev = [
+    "ruff>=0.4",
+    "mypy>=1.10",
+    "pytest>=8.1",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+extend-exclude = ["docs", "specs"]
+# Without this, `ruff format` reformats Python code blocks embedded in
+# Markdown — verified against ruff 0.16.6: it rewrote illustrative snippets
+# in docs/03-architecture.md and specs/*.md, corrupting hand-aligned comments
+# in the design authority itself. This exclude is defense in depth; the
+# Makefile below also scopes its targets to `src`/`tests` directly, which is
+# the primary fix — keep both, don't rely on either alone.
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unused_ignores = true
+plugins = ["pydantic.mypy"]
+# Required, not optional — without this, mypy --strict sees pydantic's
+# runtime-generated __init__ incorrectly and rejects zero-argument
+# construction of a BaseSettings/BaseModel subclass whose fields are meant to
+# populate from the environment or from validation defaults. Verified this
+# breaks settings.py's fail-fast pattern (04 §9) without the plugin, and
+# verified separately that a frozen BaseModel with inheritance — the exact
+# shape P1's contracts use (RawRow / ProductQuery(RawRow)) — also needs it.
+# This is a project-wide type-checking posture decision, made once here,
+# before P1 exists, specifically so P1 doesn't hit the same class of failure
+# and have to re-litigate it.
+
+# Third-party libraries without type stubs. This is the sanctioned place for
+# that gap — never a per-line `# type: ignore` scattered through logic (`04`
+# §3, §12). Add an entry here only when mypy actually reports the import as
+# untyped; don't pre-emptively silence a package that turns out to have stubs.
+[[tool.mypy.overrides]]
+module = ["extruct.*", "trafilatura.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
