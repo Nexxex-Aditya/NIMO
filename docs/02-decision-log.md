@@ -1123,6 +1123,82 @@ comments). `03-architecture.md` §3 (`GoldPair`), §4 stage 1 steps 1 and 3
 **Status:** standing
 
 
+## 2026-09-10 — P6a batch runner: one choke point for failure, atomic per-row artifacts, and a test that pins the choke point shut
+**Decision:** `specs/run.md` written and implemented — `src/nimo/run/` with a
+per-row stage driver, `RowFailure` capture, `row_uid`-keyed resume, a trace,
+`RunSummary` and a CLI. Gate: **412/412 `dev` rows in 3.6s cold, 0.1s and zero
+work on resume**, 412 artifacts per stage, 412 trace records.
+**Why and what was decided inside it:**
+
+**1. `04` §4's rules are now enforced by types and a test, not by memory.**
+The rule is "per-row failures are caught at exactly one place — the runner —
+recorded as a typed `RowFailure`". Three mechanisms:
+- `RowArtifacts` has no partially-populated form. It is constructed only when
+  every stage succeeded, so "never write a partial output row" is a property
+  of the type rather than a rule someone has to remember at each call site.
+- A failed row has `clear_artifacts` called on it, because `04` §4's rule
+  applies to intermediate artifacts too — a later stage reading a
+  half-populated artifact set is exactly how a plausible wrong answer gets
+  built.
+- `test_only_one_broad_except_exists_in_src` greps `src/` and asserts the
+  runner is the *only* `except Exception` in the tree. It immediately earned
+  its place: it caught `write_artifact`'s temp-file cleanup, which was a
+  legitimate re-raise but was better written as `try/finally` anyway. Rewritten
+  rather than exempted — loosening the guard on its first run would have made
+  it decorative.
+
+**2. The stage cursor is typed as a `Literal`, not a `str`.** `RowFailure`
+requires the stage that raised, and a *wrong* stage is worse than no stage
+because it sends the next person to the wrong module. Typing the cursor means
+mypy checks every assignment against the accepted names, so a typo is a type
+error rather than data. Tested per stage.
+
+**3. One file per row per stage, written atomically, not one appended JSONL
+per stage.** A `SIGKILL` mid-append leaves a truncated final line whose
+recovery is a judgement call — corruption or partial write? — and a runner
+that guesses wrong either loses good rows or resumes from bad ones. A
+temp-file-plus-rename is atomic on POSIX and Windows alike: the file either
+exists complete or does not exist. ~1236 small files is a fair price for a
+resume path with no ambiguity in it. **A row with *some* artifacts is re-run
+from scratch**, never trusted, because the run that produced it was
+interrupted for a reason nobody recorded.
+
+**4. `row_uid` is sanitized for the filename and nowhere else.** `dev:0`
+becomes `dev-0.json` because `:` is not a legal filename character on Windows,
+which is the machine this project is built on — left unhandled it is a mid-run
+crash rather than a design discussion. The `row_uid` inside the file stays
+`dev:0`, and a test asserts the round trip.
+
+**5. `config_hash` hashes file contents, not mtimes.** `05` §5 wants "which
+config produced this output" answerable after the fact. A checkout, a copy or
+a `git clone` changes mtimes without changing behavior, and a fingerprint that
+moves when nothing meaningful changed teaches people to ignore it.
+
+**6. The LLM and cache counters are reported as zero rather than omitted.**
+There is no LLM client and no fetch cache yet, so `04` §10's required fields
+are structurally zero — wired end to end now so the fields exist before the
+phases that populate them, with the summary line saying plainly that they are
+zero by construction rather than by measurement.
+
+**7. `tier_counts` reads `tier2_retrieval: 412` on a cold registry, and the
+CLI says so out loud.** That is the honest cold-start number for `03` §1a's
+efficiency claim. Given `specs/registry.md` §3's finding that Tier 0 fires
+0/412 in a single pass and 412/412 on a re-run, a tier histogram full of
+`tier2` is what a first pass is *supposed* to look like — worth stating at
+demo time rather than showing a zero and hoping nobody asks.
+
+**Determinism, stated honestly:** the artifact tree and trace are
+byte-identical across runs and a test asserts it. `RunSummary.wall_time_s` and
+`RowFailure.occurred_at` are not, and are not meant to be — the runner takes
+its clock as a parameter so tests pin it, and `03` §3 already marks
+`occurred_at` metadata that logic never reads.
+**Affects:** new `specs/run.md`, new `src/nimo/run/` (`artifacts.py`,
+`runner.py`, `__main__.py`), new `tests/run/`. `04-build-standards.md` §1 P6a
+row. No contract changes — `RowFailure` and `RunSummary` were added when the
+gap was found.
+**Status:** standing
+
+
 ---
 
 # Open questions — resolve with organizers

@@ -9,15 +9,26 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P6a (batch runner & orchestration) — NOT STARTED
-Last completed milestone: P6 (registry & blocking), gate passed.
-Next milestone: P6a. **No spec file exists yet** — write `specs/run.md`
-first, then implement. `src/nimo/run/` is still 0 bytes while four separate
-requirements across `03`/`04` depend on it. Its gate is behavioural: 412 rows
-driven through the stages built so far, a deliberately failing row recorded as
-a typed `RowFailure` that neither aborts the run nor writes a partial output
-row (`04` §4's two hardest rules), and kill-and-restart resuming without
-redoing completed rows. Authority: `04` §1 P6a, `04` §4, `03` §2, `03` §5.
+Phase: P7 (SearxNG + retrieval) — NOT STARTED
+Last completed milestone: P6a (batch runner & orchestration), gate passed.
+Next milestone: P7. **No spec file exists yet** — write `specs/retrieval.md`
+first, then implement. Gate (`04` §1): Recall@20 measured on the gold set.
+Authority: `03` §4 stage `[2]`, `04` §6 (network discipline).
+
+**P7 is the first phase that touches the network**, so `04` §6 and `05` §2
+become live for the first time: zero network calls in tests (frozen fixtures
+only), one HTTP client wrapper with timeouts/rate limits/backoff, SSRF
+rejection of private ranges — and note `05` §2's guard must be scoped to
+untrusted candidate URLs, not applied globally, or it blocks our own LLM
+endpoint, which is itself an RFC1918 address (`config/models.yaml`).
+
+Also note P7's gate depends on the P4 gold set, which is **6 of 50 rows
+labelled**. Recall@20 measured on 6 rows is a weak number and should be
+reported as such, or more rows labelled first.
+
+The runner (P6a) is the place new stages plug in: add the stage name to
+`STAGE_SEQUENCE` and a call to `process_row`'s sequence. It already drives
+412 rows with resume and typed failure capture.
 
 ## Carried-forward work, explicitly not done
 
@@ -40,16 +51,16 @@ redoing completed rows. Authority: `04` §1 P6a, `04` §4, `03` §2, `03` §5.
 
 ## Verified state (re-check on resume, don't trust blindly)
 
-Last `make check`: PASS as of the P6 milestone commit. `make` is absent on
+Last `make check`: PASS as of the P6a milestone commit. `make` is absent on
 this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (359 passed)
+  uv run pytest                          -> EXIT 0  (375 passed)
 
 ## Do NOT re-do
 
-- P0–P6: done, gates verified by execution, committed.
+- P0–P6a: done, gates verified by execution, committed.
 - **Row identity is `row_uid` (`"dev:0"`), never `NAN_KEY`/`ITEM_CODE`.**
   `01` §14: all three columns carry the same rounding corruption. Never key
   an artifact, a cache entry, a registry member or a gold label on
@@ -76,6 +87,12 @@ this machine; ran its four commands directly per `04` §11:
 - **P6: Tier 0 fires 0/412 in a single pass over this dataset** (0 shared
   dev/qa barcodes, 0 duplicates within qa) and 412/412 on a re-run. That is
   the warm-start property working, not a bug. Demo it as a re-run.
+- **P6a: the runner is the only `except Exception` in `src/`**, paired with a
+  typed `RowFailure`, and `test_only_one_broad_except_exists_in_src` pins it.
+  If that test fails, the fix is to remove the new broad except, not to add a
+  path to the allowlist.
+- **P6a: a failed row leaves NO artifacts**, not a partial set, and a row with
+  some artifacts is re-run from scratch rather than trusted.
 - **P5's classifier reads `desc_clean` only — BRAND is deliberately
   excluded**, measured at 7.5 points overall / 3.5 macro worse with it.
   `04` §1's gate wording was corrected to match the measurement. Don't
