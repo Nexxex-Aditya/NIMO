@@ -3,3 +3,205 @@
 Populated in P1 against docs/03-architecture.md §3. Do not add models here
 outside that phase without a decision-log entry.
 """
+
+from datetime import datetime
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict
+
+
+class DescTokens(BaseModel):  # parsed from desc_clean
+    model_config = ConfigDict(frozen=True)
+
+    variant_terms: list[str]  # "whitening", "sensitive", "original"
+    size_value: float | None  # 100.0
+    size_unit: str | None  # "ml" — normalized
+    size_ml_equiv: float | None  # for cross-unit comparison
+    count: int | None  # multipack count; None == 1
+    format_hints: list[str]  # "pump", "spray", "tablets"
+    stripped_junk: list[str]  # audit trail of what was removed
+
+
+class RawRow(BaseModel):  # loader (P2) output — one per dev/qa row, pre-normalization
+    model_config = ConfigDict(frozen=True)
+
+    nan_key: int
+    item_code: int
+    barcode: str | None  # normalized string, None if absent OR corrupt (see `01` §3)
+    # original string before nulling on corruption — audit/trace only,
+    # NEVER used for matching or registry blocking
+    barcode_raw: str | None
+    barcode_corrupt: bool  # True for the rounded dev values
+    # "AQUAFRESH (HALEON)" — verbatim from BRAND column, encoding-repaired
+    # (see brand_encoding_suspect) before the parenthetical split below runs
+    brand_raw: str
+    brand: str  # "AQUAFRESH" — mechanical parenthetical split, not NLP
+    brand_owner: str | None  # "HALEON"
+    # True if ftfy changed brand_raw from the source cell — `01` §13, `01` §10 #9
+    brand_encoding_suspect: bool
+    retailer_raw: str  # "P00R4 (GB) BOOTS" — verbatim from RETAILER column
+    retailer: str  # "BOOTS" — looked up from config/retailers.yaml, see specs/loader.md
+    countries: list[str]  # ["GB"] or ["BE","GB","NL"] — split on COUNTRY
+    # RETAILER_DESC, whitespace collapsed/trimmed and encoding-repaired (see
+    # desc_encoding_suspect) — no other processing; junk-token stripping is
+    # P3's job, not this field's
+    desc_raw: str
+    # True if ftfy changed desc_raw from the source cell — `01` §13, `01` §10 #9
+    desc_encoding_suspect: bool
+
+
+class CharacteristicRule(BaseModel):  # loader (P2) output — one row of char_value_list
+    model_config = ConfigDict(frozen=True)
+
+    module: str
+    characteristic: str  # underscored form, e.g. "GLOBAL_BRISTLE_STRENGTH_CLAIM"
+    open_close: Literal["Close", "Open-ended"]
+    binary: bool
+    allowed_values: list[str]  # parsed from possible_values via ast.literal_eval
+
+
+class CharacteristicGuideline(BaseModel):  # loader (P2) output — one row of char_guidelines
+    model_config = ConfigDict(frozen=True)
+
+    module: str
+    characteristic: str  # normalized to the same underscored form as above
+    guideline_text: str
+
+
+class ProductQuery(RawRow):  # normalizer (P3) output — RawRow + parsed description
+    desc_clean: str  # junk tokens stripped
+    tokens: DescTokens
+
+
+class CanonicalEntity(BaseModel):  # §1a — one persisted, resolved product
+    model_config = ConfigDict(frozen=True)
+
+    # stable hash of (barcode or fingerprint) — never a random uuid;
+    # must be reproducible
+    entity_id: str
+    barcode: str | None  # authoritative GTIN once confirmed
+    brand: str
+    size_ml_equiv: float | None
+    count: int
+    module: str | None
+    resolved_url: str | None
+    page_title: str | None  # see [PROVISIONAL — Q2]
+    characteristics: dict[str, str]  # applicable-only, post-gate values
+    confidence: float
+    member_nan_keys: list[int]  # every row folded into this entity
+    resolution_tier: Literal["tier0_exact", "tier1_ann", "tier2_retrieval", "tier3_llm"]
+    created_at: datetime
+    updated_at: datetime
+
+
+class BlockKey(BaseModel):  # §1a — blocking, computed at stage [1]
+    model_config = ConfigDict(frozen=True)
+
+    key: str  # clean barcode, or fingerprint(brand,size,count)
+    method: Literal["exact_gtin", "fingerprint"]
+
+
+class RegistryLookupResult(BaseModel):  # §1a — output of stage [1]
+    model_config = ConfigDict(frozen=True)
+
+    hit: bool
+    tier: Literal["tier0_exact", "tier1_ann", "miss"]
+    entity: CanonicalEntity | None
+    similarity: float | None  # None for tier0 exact match
+
+
+class CandidateURL(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    url: str  # canonicalized
+    source_query: str  # which strategy produced it
+    engine: str  # which SearxNG engine
+    rank: int
+    title_snippet: str | None
+
+
+class CandidateEvidence(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    url: str
+    fetch_status: Literal["ok", "http_error", "timeout", "blocked", "parse_error"]
+    fetched_at: datetime
+    content_hash: str
+    title: str | None
+    # schema.org/Product if present. `dict[str, Any]`, not bare `dict` (fails
+    # mypy --strict [type-arg]) and not `dict[str, object]` (breaks nested
+    # access like jp["brand"]["name"], which is JSON-LD's actual shape). This
+    # is the documented `Any` boundary `04` §3 permits: arbitrary third-party
+    # JSON-LD has no schema we control. See `02-decision-log.md`.
+    jsonld_product: dict[str, Any] | None
+    gtin: str | None  # from JSON-LD/microdata — highest value
+    og: dict[str, Any]  # OpenGraph tags — same documented-boundary rationale
+    breadcrumbs: list[str]
+    body_text: str  # boilerplate-stripped
+    image_urls: list[str]
+    price: str | None
+    parse_warnings: list[str]
+
+
+class MatchFeatures(BaseModel):  # one per candidate — the audit surface
+    model_config = ConfigDict(frozen=True)
+
+    barcode_exact: bool | None  # None == cannot evaluate
+    brand_match: float  # 0..1
+    size_match: Literal["exact", "unit_converted", "mismatch", "absent"]
+    count_match: Literal["exact", "mismatch", "absent"]
+    variant_overlap: float
+    format_consistent: bool | None
+    retailer_domain_match: bool
+    market_signal: float
+    negative_flags: list[str]  # "refill","bundle","travel_size","sample"
+    raw_score: float
+    calibrated_prob: float
+
+
+class Selection(BaseModel):
+    model_config = ConfigDict(frozen=True)
+
+    url: str | None  # None == abstained
+    page_title: str | None  # see [PROVISIONAL — Q2]
+    confidence: float
+    runner_up_gap: float
+    features: MatchFeatures | None  # None when resolved via registry hit (tier 0/1)
+    adjudicated_by_llm: bool
+    resolution_tier: Literal["tier0_exact", "tier1_ann", "tier2_retrieval", "tier3_llm"]
+
+
+class OutputRow(BaseModel):  # serializes to qa header exactly, in order
+    model_config = ConfigDict(frozen=True)
+
+    ITEM_CODE: int
+    NAN_KEY: int
+    EXTERNAL_CODE: str  # text, never numeric — see `01` §3
+    COUNTRY: str  # comma-joined, passthrough from input
+    RETAILER_DESC: str  # passthrough from input, raw
+    RETAILER: str  # passthrough from input
+    BRAND: str  # passthrough from input
+    PRODUCT_URL: str | None  # None serializes to empty cell; see [PROVISIONAL — Q2]
+    REASONING: str | None
+    MODULE: str | None  # must be one of the 59-value set if set
+    GLOBAL_INTERSPACE_CLAIM: str | None
+    GLOBAL_CONSUMER_LIFESTAGE_CLAIM: str | None
+    GLOBAL_PACKAGING: str | None
+    GLOBAL_IF_MEDICATED: str | None
+    GLOBAL_PERCENTAGE_NATURAL_INGREDIENTS: str | None
+    GLOBAL_IF_WITH_SENSITIVE_CLAIM: str | None
+    GLOBAL_ORAL_CARE_FUNCTION: str | None
+    GLOBAL_IF_WITH_FLUORIDE: str | None
+    GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT_GROUP: str | None
+    GLOBAL_METHOD_OF_APPLICATION_DISPENSE: str | None
+    GLOBAL_PACKAGING_MATERIAL: str | None
+    GLOBAL_DESCRIPTIVE_SIZE_OF_TOOTHBRUSH_HEAD_CLAIM: str | None
+    GLOBAL_BRISTLE_STRENGTH_CLAIM: str | None
+
+    # Construction rule: every one of the 13 characteristic fields is either
+    # a validated value from `char_value_list.possible_values` (closed) or
+    # `char_guidelines`-conformant text (open-ended), or None if the
+    # characteristic is not applicable to `MODULE` (`01` §7, `03` §4 stage 6
+    # step 1). None is the ONLY representation of "not applicable" — never an
+    # empty string, never "N/A", never "NOT APPLICABLE" as a literal value.
+    # The assembler (`03` §4 stage 8) writes None → an empty cell, nothing else.
