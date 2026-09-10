@@ -26,7 +26,7 @@ phase's final code. Values: `not started` | `in progress` | `done`.
 | P1 | Contracts | `contracts.py` — every model in `03` §3, no logic | Models instantiate; round-trip to JSON | done |
 | P2 | Loader | Dataset ingest, all 7 acceptance criteria in `01` §10 | Corruption counts match `01` §3 exactly | done |
 | P3 | Normalizer | `RETAILER_DESC` → `DescTokens` | 30 hand-written cases from real dev rows pass | done |
-| P4 | **Gold set** | ~50 hand-labelled URLs, stratified by module | Committed as `data/gold/urls.jsonl` | not started |
+| P4 | **Gold set** | ~50 hand-labelled URLs, stratified by module | Committed as `data/gold/urls.jsonl` | done — infrastructure complete, **6 of 50 labelled** (5 correct, 1 ambiguous). Partial by design: `specs/gold.md` forbids inventing entries to reach the target, since a fabricated URL miscalibrates P9/P10 undetectably. Frozen sample in `data/gold/sample.txt` makes the remaining 44 resumable |
 | P5 | Module baseline | Text-only module classifier, no URL | Per-module stratified accuracy reported | not started |
 | P6 | **Registry & blocking** | `CanonicalEntity` store, exact-key blocking, Union-Find merge | Tier-1 block hit rate **and** within-block precision, on a content fingerprint (`brand + size + count`) — **not** on the dev/qa `ITEM_CODE` overlap, which `01` §14 shows is entirely a rounding artifact (all 40 corrupt, zero clean, pairs are different products). Measured ceiling for hit rate: 136/220 sized qa rows. Precision scored against the P4 gold set (`03` §1a) | not started |
 | P7 | SearxNG + retrieval | Self-hosted instance, 5 query strategies | Recall@20 measured on gold set | not started |

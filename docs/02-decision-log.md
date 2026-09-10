@@ -686,3 +686,62 @@ criterion 3. `src/nimo/contracts.py`, `src/nimo/loader/dataset.py`,
 | Q7 | Which LLM is provided, with what context window and rate limit? Multimodal available for image evidence? | High — image comparison is an explicit requirement | open |
 | Q8 | `dev` row with module `TOOTH CLEANING - GUM/TABLETS (NATURAL TEETH)` has `GLOBAL_PACKAGING_MATERIAL = 'GLASS'`, but that module's allowed values are `['CARDBOARD', 'PAPER', 'PLASTIC']` — no `GLASS`. Confirmed organizer data error, not a parsing issue on our side. Is a corrected value available? | Low — 1 of 412 rows, but worth flagging | open |
 | Q9 | `dev.BRAND` contains a double-encoded-UTF-8 mojibake value (`'JASÃƒâ€“N'`, 3 rows, presumably `JASÖN`); several `RETAILER_DESC` rows in both `dev`/`qa` are similarly corrupted. Can corrected-encoding sheets be provided, or should we repair on load? | Medium — degrades retrieval query quality for affected rows | open |
+
+## 2026-09-10 — P4 gold set: partial by design, sample frozen after it shifted under the labels
+**Decision:** P4 ships with **6 of 50 sampled rows labelled** (5 `correct`,
+1 `ambiguous`) and the full infrastructure around them: `GoldUrl` contract, a
+module-stratified sampler, a fail-loud JSONL store, and — added mid-phase —
+a **frozen sample artifact** at `data/gold/sample.txt`. `04` §1's P4 row is
+marked done on the infrastructure and the honest partial set, not on reaching
+the round number.
+**Why:** three things, in order of how much they matter.
+
+**1. Partial beats invented, and this is the one phase where that is not a
+platitude.** The gold set is the *measurement instrument* for L3 and L4
+(`03` §6) — it is the only thing stage-1 URL selection can ever be scored
+against, because `01` §6 establishes there is no URL ground truth anywhere in
+the dataset. A fabricated or snippet-guessed URL does not fail; it silently
+miscalibrates P9's precision@1 and P10's isotonic fit, and there is no
+downstream check that would notice, because this *is* the check. So every
+entry was searched for, opened in a browser, and inspected, with `evidence`
+recording what was actually confirmed. Real near-misses were rejected in the
+process — a Cocowhite sibling with identical brand and size but a different
+variant, a Humble Co fluoride-FREE sibling otherwise identical in brand,
+format and count, and a Listerine listing that is a 6-pack of 8-tablet packs
+where the row wants a single 8-count unit. Those are precisely the "similar
+or misleading matches" the brief's success criteria name, and hitting three
+of them in six rows is a useful early signal about how hard stage 4 will be.
+
+**2. The sampler had the very defect the project had just documented.** It
+selected by `nan_key`, which `01` §14 (written hours earlier) establishes is
+not unique. It was silently collapsing rows and reporting 26/27 module
+coverage instead of 27/27 — and it was *that one-module discrepancy* that led
+to discovering the `NAN_KEY`/`ITEM_CODE` corruption in the first place. Its
+own test (`test_sampler_never_returns_more_than_available`) then caught the
+bug still sitting in the sampler afterwards. Now keyed on `row_uid`;
+coverage is 27/27, against ~12 for a proportional sample of the same size.
+
+**3. Fixing that re-based the sample under labels already written against
+it** — the sampler's within-module ordering changed, so 2 of the 6 labelled
+rows fell outside the new 50. A sample that is recomputed on demand can
+therefore silently invalidate existing labels with no error at all: the same
+latent-failure shape as everything else in `05` §5, aimed at the measurement
+instrument. Hence the frozen artifact, plus a test asserting it still equals
+the sampler's output so a future change fails loudly. The two pre-freeze
+labels were kept rather than discarded — the verification work is real — and
+are named explicitly in the test as documented exceptions rather than papered
+over by weakening the assertion.
+
+**Also worth flagging:** `tesco.com` served a bot-protection interstitial
+instead of the product page. One row (`dev:193`, Diamond Whites Black Edition
+32g) whose correct answer is almost certainly a Tesco URL — the search-result
+title matches the row exactly — was left **unlabelled** rather than accepted
+on the strength of a snippet. That is `05` §5's "aggregate domain block"
+reaching the labelling process rather than the fetcher, and it is direct
+evidence for Q6: if Tesco blocks a browser, it will block the P8 fetcher too.
+**Affects:** new `specs/gold.md`, new `src/nimo/gold/`, new `tests/gold/`,
+new `data/gold/urls.jsonl` and `data/gold/sample.txt`. `03-architecture.md`
+§3 (`GoldUrl`). `specs/contracts.md` class list (14 models).
+`04-build-standards.md` §1 P4 row.
+**Status:** standing — the remaining 44 sampled rows are unlabelled and
+resumable directly from the frozen sample.
