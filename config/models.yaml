@@ -1,4 +1,49 @@
-# Provisional pending Q7 (02-decision-log.md). Do not fill in a guessed
-# provider/model — leave blank until the organizer answer is known.
-llm_provider: null
-llm_model: null
+# LLM configuration — Q7 RESOLVED 2026-09-10 by the NIQ CIS team.
+#
+# NO SECRETS IN THIS FILE. The API key lives in `.env` (gitignored) as
+# `CIS_LLM_API_KEY` and is read via `nimo.settings` — `04` §9. If you ever see
+# a key here, that is an incident, not a convenience.
+
+llm_provider: cis-azure-ai-inference
+# Pinned exactly, never "latest" — `05` §3. An upstream model swap is a
+# silent-quality-shift vector; before changing this string, re-run the gold
+# set (L3/L4) and compare.
+llm_model: hack-fest-gpt-5.6-luna
+llm_endpoint: https://llm-api-cis.azure-intlsd-np.nielsencsp.net/
+llm_api_version: "2025-03-01-preview"
+
+# The SDK the CIS onboarding notebook specifies: `azure-ai-inference`'s
+# ChatCompletionsClient, with the key passed BOTH as an AzureKeyCredential and
+# as an explicit `Authorization` header, and the value carrying a literal
+# "Bearer " prefix. That double-passing looks redundant but is what the
+# provided notebook does; do not "simplify" it without testing against the
+# live endpoint first.
+
+# --- NETWORK CONSTRAINT, measured 2026-09-10 ---------------------------
+# This endpoint is NOT reachable from the public internet. Verified:
+#   DNS  llm-api-cis.azure-intlsd-np.nielsencsp.net -> 10.249.224.116
+#        (RFC1918 private, is_global=False)
+#   TCP  443 times out from an off-network machine
+#   control: api.github.com:443 connects fine, so it is not a local
+#        connectivity problem
+# It therefore requires the NIQ corporate network / VPN. Any phase that calls
+# the model (P11, P12, P13) can only be *executed* on-network; it can still be
+# *built and tested* off-network against frozen fixtures, which `04` §6
+# requires anyway ("zero network calls in tests").
+
+# --- SSRF INTERACTION, do not get this wrong ---------------------------
+# `05` §2 requires the FETCHER to reject private/RFC1918 addresses. This
+# endpoint resolves to one. The guard is therefore scoped to untrusted
+# candidate URLs from search results (`03` §4 stage 2) — it must NOT be
+# applied to this configured, trusted endpoint, or the pipeline blocks its own
+# model. Scope the check at the fetch client, not globally.
+
+llm_temperature: 0        # `04` §5 — determinism is non-negotiable
+llm_max_output_tokens: 1024
+llm_request_timeout_s: 60
+
+# Hard per-run budget — `05` §3. On breach the runner ABORTS with a clear
+# failure rather than throttling on: an overrun usually means pathological
+# retries or a block-key collision causing runaway re-processing.
+llm_max_tokens_per_run: 2000000
+llm_max_calls_per_run: 5000

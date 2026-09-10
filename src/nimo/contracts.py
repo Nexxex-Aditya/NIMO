@@ -107,6 +107,43 @@ class CanonicalEntity(BaseModel):  # §1a — one persisted, resolved product
     updated_at: datetime
 
 
+class RowFailure(BaseModel):  # P6a — the batch runner's typed failure record
+    model_config = ConfigDict(frozen=True)
+
+    row_uid: str  # which row failed (`01` §14 — never nan_key)
+    stage: Literal[
+        "normalize",
+        "registry",
+        "retrieve",
+        "fetch",
+        "match",
+        "classify",
+        "characteristics",
+        "reason",
+        "assemble",
+    ]
+    error_type: str  # exception class name, e.g. "DatasetSchemaError"
+    message: str  # str(exception), truncated by the runner
+    occurred_at: datetime  # metadata only, never read by logic (`04` §5)
+
+
+class RunSummary(BaseModel):  # P6a — what every run prints (`04` §10)
+    model_config = ConfigDict(frozen=True)
+
+    run_id: str  # stable per invocation; appears in every trace record
+    rows_total: int
+    rows_succeeded: int
+    rows_failed: int
+    failures_by_stage: dict[str, int]  # str keys — JSON round-trip rule
+    tier_counts: dict[str, int]  # resolution_tier -> count; the §1a efficiency evidence
+    llm_calls: int
+    llm_tokens: int
+    cache_hits: int
+    cache_misses: int
+    wall_time_s: float
+    config_hash: str  # config+prompt fingerprint — `05` §5 version-skew guardrail
+
+
 class GoldUrl(BaseModel):  # P4 — one hand-verified URL label, `03` §6 L3/L4
     model_config = ConfigDict(frozen=True)
 

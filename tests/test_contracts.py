@@ -29,6 +29,8 @@ from nimo.contracts import (
     ProductQuery,
     RawRow,
     RegistryLookupResult,
+    RowFailure,
+    RunSummary,
     Selection,
 )
 
@@ -104,6 +106,29 @@ CANONICAL_ENTITY = CanonicalEntity(
     resolution_tier="tier2_retrieval",
     created_at=FIXED_TS,
     updated_at=FIXED_TS,
+)
+
+ROW_FAILURE = RowFailure(
+    row_uid="dev:217",
+    stage="fetch",
+    error_type="TimeoutError",
+    message="read timeout after 30s on boots.com",
+    occurred_at=FIXED_TS,
+)
+
+RUN_SUMMARY = RunSummary(
+    run_id="run-2026-09-10-01",
+    rows_total=412,
+    rows_succeeded=400,
+    rows_failed=12,
+    failures_by_stage={"fetch": 9, "match": 3},
+    tier_counts={"tier0_exact": 4, "tier1_ann": 130, "tier2_retrieval": 250, "tier3_llm": 16},
+    llm_calls=266,
+    llm_tokens=184_320,
+    cache_hits=980,
+    cache_misses=310,
+    wall_time_s=1425.5,
+    config_hash="sha256:c0ffee",
 )
 
 GOLD_URL = GoldUrl(
@@ -216,6 +241,8 @@ ALL_MODELS: list[tuple[str, BaseModel]] = [
     ("CharacteristicGuideline", CHARACTERISTIC_GUIDELINE),
     ("ProductQuery", PRODUCT_QUERY),
     ("CanonicalEntity", CANONICAL_ENTITY),
+    ("RowFailure", ROW_FAILURE),
+    ("RunSummary", RUN_SUMMARY),
     ("GoldUrl", GOLD_URL),
     ("BlockKey", BLOCK_KEY),
     ("RegistryLookupResult", REGISTRY_LOOKUP_RESULT),
@@ -256,7 +283,7 @@ QA_HEADER: list[str] = [
 
 def test_every_contract_model_is_covered() -> None:
     """Guards the parametrized list itself against a silently-dropped model."""
-    assert len(ALL_MODELS) == 14
+    assert len(ALL_MODELS) == 16
 
 
 @pytest.mark.parametrize("name,instance", ALL_MODELS, ids=[n for n, _ in ALL_MODELS])
@@ -340,6 +367,7 @@ def test_nested_jsonld_survives_round_trip_with_types_intact() -> None:
         (Selection, "resolution_tier", "miss"),
         (GoldUrl, "label", "probably_right"),
         (GoldUrl, "sheet", "qa"),
+        (RowFailure, "stage", "retrival"),
     ],
 )
 def test_literals_reject_out_of_vocabulary_values(
@@ -412,7 +440,7 @@ def test_contracts_match_architecture_section_3_field_for_field() -> None:
     `contracts.py` to match — do not relax the test.
     """
     spec = _parse_architecture_section_3()
-    assert len(spec) == 14, f"expected 14 classes in `03` §3, parsed {len(spec)}"
+    assert len(spec) == 16, f"expected 16 classes in `03` §3, parsed {len(spec)}"
     for class_name, fields in spec.items():
         model = getattr(contracts_module, class_name, None)
         assert model is not None, f"`03` §3 declares {class_name}; contracts.py has no such model"

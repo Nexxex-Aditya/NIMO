@@ -288,6 +288,27 @@ class DescTokens:                  # parsed from desc_clean
     format_hints: list[str]        # "pump", "spray", "tablets"
     stripped_junk: list[str]       # audit trail of what was removed
 
+class RowFailure:                  # P6a — the batch runner's typed failure record
+    row_uid: str                   # which row failed (`01` §14 — never nan_key)
+    stage: Literal["normalize","registry","retrieve","fetch","match","classify","characteristics","reason","assemble"]
+    error_type: str                # exception class name, e.g. "DatasetSchemaError"
+    message: str                   # str(exception), truncated by the runner
+    occurred_at: datetime          # metadata only, never read by logic (`04` §5)
+
+class RunSummary:                  # P6a — what every run prints (`04` §10)
+    run_id: str                    # stable per invocation; appears in every trace record
+    rows_total: int
+    rows_succeeded: int
+    rows_failed: int
+    failures_by_stage: dict[str, int]   # str keys — JSON round-trip rule, §3 preamble
+    tier_counts: dict[str, int]         # resolution_tier -> count; the §1a efficiency evidence
+    llm_calls: int
+    llm_tokens: int
+    cache_hits: int
+    cache_misses: int
+    wall_time_s: float
+    config_hash: str               # config+prompt fingerprint — `05` §5 version-skew guardrail
+
 class GoldUrl:                     # P4 — one hand-verified URL label, §6 L3/L4
     row_uid: str                   # "dev:N" — the row identity (`01` §14); nan_key would not be unique
     nan_key: int                   # carried for traceability only

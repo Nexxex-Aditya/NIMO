@@ -671,6 +671,116 @@ criterion 3. `src/nimo/contracts.py`, `src/nimo/loader/dataset.py`,
 `src/nimo/gold/store.py`, and the three test modules.
 **Status:** standing
 
+## 2026-09-10 — Q7 answered (CIS LLM); the endpoint is internal-only; the SSRF guard must not be global
+**Decision:** Q7's answer recorded in `config/models.yaml` — provider
+`cis-azure-ai-inference`, model **pinned** to `hack-fest-gpt-5.6-luna` (`05` §3
+forbids `latest`), endpoint `https://llm-api-cis.azure-intlsd-np.nielsencsp.net/`,
+SDK `azure-ai-inference` `ChatCompletionsClient` at api_version
+`2025-03-01-preview`, temperature 0. The API key lives only in gitignored
+`.env` as `CIS_LLM_API_KEY`; `config/models.yaml` and `.env.example` carry
+names and non-secret settings only (`04` §9). `azure-ai-inference>=1.0.0b9`
+added to the dependency list. **No LLM client module was built** — that is
+P11's deliverable, and it cannot be live-verified from here (below), so
+writing it now would be speculative code against an unreachable service.
+**Why, and the two findings that came out of trying to verify it:**
+
+**1. The endpoint is not reachable from outside NIQ's network.** Probed rather
+than assumed, per `04` §13's verification standard. DNS resolves
+`llm-api-cis.azure-intlsd-np.nielsencsp.net` to **`10.249.224.116`**, an
+RFC1918 private address (`ipaddress.ip_address(...).is_global` is `False`);
+a TCP connect to port 443 times out; and a control connection to
+`api.github.com:443` from the same machine succeeds, so this is not local
+connectivity. The API therefore requires the NIQ corporate network or VPN.
+The onboarding notebook does not mention this, and it changes how P11–P13 get
+built: they can be *written and tested* off-network against frozen fixtures
+(which `04` §6 mandates anyway — "zero network calls in tests"), but can only
+be *executed* on-network. The cost of finding this at demo time instead of now
+is the entire demo.
+
+**2. `05` §2's SSRF guard would block our own model if implemented globally.**
+`05` §2 requires the fetcher to reject private/RFC1918 ranges — and the LLM
+endpoint *is* a private address. These are not actually in conflict, but only
+because the guard's scope is narrow: it protects against **untrusted candidate
+URLs arriving from search results** (`03` §4 stage 2), not against a
+configured, trusted endpoint read from `config/`. Implemented as a global
+outbound-address check in the shared HTTP wrapper — the obvious way to write
+it, since `04` §6 says all HTTP goes through one client — it would break the
+pipeline's own LLM calls with a timeout whose cause is not remotely obvious
+from the symptom. Recorded in `config/models.yaml` directly next to the
+endpoint, so whoever writes the fetch client in P8 reads it there rather than
+rediscovering it.
+
+**Still unanswered inside Q7**, and worth re-asking CIS rather than assuming:
+context-window size, rate limits, and whether the model accepts image input.
+`03` §4 stage 6 step 5 routes the primary pack shot to a multimodal call for
+the four visual characteristics (packaging material, bristle strength,
+toothbrush head size, dispense method); if `hack-fest-gpt-5.6-luna` is
+text-only, that step needs a different plan and those four fall back to text
+evidence alone. Q7's row is marked partially resolved, not resolved, for
+exactly that reason.
+**Affects:** `config/models.yaml` (rewritten), `.env.example`, `.env`
+(untracked, gitignored — verified absent from `git status`), `pyproject.toml`
+(`azure-ai-inference`), `uv.lock`, Q7's row in the open-questions table.
+Consumed by P11, P12, P13; the SSRF note is consumed by P8.
+**Status:** standing — connectivity unverified; re-verify on-network before P11.
+
+## 2026-09-10 — Orchestration gap closed: `RowFailure`/`RunSummary` contracts and a P6a batch-runner phase
+**Decision:** Added `RowFailure` and `RunSummary` to `03` §3 and
+`contracts.py` (16 models now), and added **P6a — Batch runner &
+orchestration** to `04` §1's build order, sited between P6 and P7.
+**Why:** prompted by a direct question — is there a proper harness here, with
+memory orchestration and the rest — which on checking turned up two real gaps
+rather than a reassuring answer.
+
+**1. `RowFailure` was mandated and defined nowhere.** `04` §4 states that
+per-row failures are "caught at exactly one place — the runner — recorded as a
+typed `RowFailure` with stage, exception type, and message." Grepping the
+repo, that sentence was the *only* occurrence of the name: no contract in `03`
+§3, no implementation, no test. This is the same authoring-gap class as the
+`CharacteristicSchema` reference caught earlier in this project — a type named
+in prose by a standards document, which every later phase is required to
+produce, that does not exist.
+
+**2. The batch runner had no phase and no owner.** `04` §2's layout lists
+`src/nimo/run/` as "batch runner, CLI"; `04` §4 routes all per-row failure
+handling through "the runner"; `03` §2 requires every stage to write artifacts
+keyed by `row_uid`; `03` §5 requires the runner to process by `row_uid`, skip
+completed rows and survive interruption. Four load-bearing requirements across
+three documents — and P0 through P15 never allocated a phase to building any
+of it. P14 is Assembly (output serialization), P15 is Demo.
+`src/nimo/run/__init__.py` is 0 bytes.
+
+**On the framing question itself, since it shapes what P6a is:** NIMO
+deliberately has no agent harness. `03` §1 rejects the autonomous loop
+explicitly and `03` §7 lists "Autonomous ReAct agent over search+fetch tools"
+among rejected alternatives — and those reasons still hold now that an LLM is
+actually available (reproducibility across 412 rows, scoreability with no URL
+ground truth, token cost, and transparency being a scored criterion). What
+NIMO has instead is a deterministic pipeline plus a persistent Canonical
+Entity Registry as its memory layer, which is a coherent design and the right
+one here. The gap was never "this should have been an agent" — it was that the
+*orchestration* concerns a harness would centralise (failure capture, resume,
+tracing, budget enforcement, run summary) were scattered across three
+documents with no phase that owned them.
+
+**P6a's gate is behavioural, not structural**, because that is where the value
+is: all 412 dev rows driven through the stages built so far; a deliberately
+failing row recorded as a typed `RowFailure` that neither aborts the run nor
+emits a partial output row (`04` §4's two hardest rules, and the ones most
+likely to be quietly violated by a `try/except` in the wrong place); and a
+kill-and-restart mid-run resuming without redoing completed rows. `RunSummary`
+carries the tier-distribution counts `03` §1a's efficiency claim is checked
+against, the per-stage failure counts `04` §10 requires every run to print,
+and the `config_hash` that `05` §5's version-skew guardrail needs recorded per
+run.
+**Affects:** `03-architecture.md` §3 (two new contracts).
+`src/nimo/contracts.py`. `tests/test_contracts.py` (16 models, new fixtures,
+drift guard updated). `specs/contracts.md` class list and DoD.
+`04-build-standards.md` §1 (new P6a row). `specs/run.md` is still to be
+written, at the start of P6a.
+**Status:** standing
+
+
 ---
 
 # Open questions — resolve with organizers
@@ -683,7 +793,7 @@ criterion 3. `src/nimo/contracts.py`, `src/nimo/loader/dataset.py`,
 | Q4 | `sample_output` shows an Amazon.in page as the answer for a `FR,GB` item. Is cross-market resolution acceptable? | Medium — determines whether market is a filter or a feature | open |
 | Q5 | `sample_output` carries `GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT`, absent from `dev`/`qa`. Required in submission? | Medium | open |
 | Q6 | Is scraping retailer sites permitted, and are there rate/robots constraints for the demo? | Medium | open |
-| Q7 | Which LLM is provided, with what context window and rate limit? Multimodal available for image evidence? | High — image comparison is an explicit requirement | open |
+| Q7 | Which LLM is provided, with what context window and rate limit? Multimodal available for image evidence? | High — image comparison is an explicit requirement | **partially resolved 2026-09-10** — CIS LLM, model `hack-fest-gpt-5.6-luna`, `azure-ai-inference` SDK, api_version `2025-03-01-preview`; key in gitignored `.env`. **New constraint found by probing: the endpoint is internal-only** — it resolves to `10.249.224.116` (RFC1918) and TCP 443 times out off-network, so it needs the NIQ VPN. Context window, rate limit and multimodal support are still unstated — re-ask, and confirm connectivity on-network before P11/P12 execute. |
 | Q8 | `dev` row with module `TOOTH CLEANING - GUM/TABLETS (NATURAL TEETH)` has `GLOBAL_PACKAGING_MATERIAL = 'GLASS'`, but that module's allowed values are `['CARDBOARD', 'PAPER', 'PLASTIC']` — no `GLASS`. Confirmed organizer data error, not a parsing issue on our side. Is a corrected value available? | Low — 1 of 412 rows, but worth flagging | open |
 | Q9 | `dev.BRAND` contains a double-encoded-UTF-8 mojibake value (`'JASÃƒâ€“N'`, 3 rows, presumably `JASÖN`); several `RETAILER_DESC` rows in both `dev`/`qa` are similarly corrupted. Can corrected-encoding sheets be provided, or should we repair on load? | Medium — degrades retrieval query quality for affected rows | open |
 
