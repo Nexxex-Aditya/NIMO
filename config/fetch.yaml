@@ -1,0 +1,63 @@
+# P8 fetcher — specs/fetch.md §2-§4.
+#
+# `04` §9: zero magic numbers in code.
+
+# --- Politeness (`03` §4 stage 3) ------------------------------------------
+#
+# An identifying UA naming the project, per `04` §6. Not a browser
+# impersonation string: sites that block us should be able to tell who we are
+# and why, and `05` §5's "aggregate domain block" is a finding we want to be
+# able to explain rather than disguise.
+user_agent: "nimo-product-truth-agent/0.1 (NielsenIQ hackathon prototype; +contact via repo)"
+
+# Per-DOMAIN, not global. 2s matches the retrieval pacing that stopped the
+# search engines blocking us; retailer sites are less tolerant than search
+# APIs, not more.
+min_interval_s: 2.0
+
+# `03` §4 stage 3 asks for a concurrency cap per domain. One in flight per
+# host is the honest reading of "polite" for a prototype crawling a few
+# hundred pages.
+max_concurrent_per_host: 1
+
+respect_robots: true
+
+# --- Limits (`05` §2) ------------------------------------------------------
+#
+# Both timeout halves, always (`04` §6): a read timeout with no connect
+# timeout still hangs forever on a black-holed host.
+connect_timeout_s: 5.0
+read_timeout_s: 20.0
+
+# Enforced WHILE STREAMING, not after. `05` §2 calls an unbounded or
+# slow-drip response a resource-exhaustion vector, not merely a slow one, and
+# a cap checked after download has already paid the cost. Measured: the
+# largest real page captured was Amazon at 1.4 MB, so 8 MB is generous
+# headroom rather than a guess.
+max_response_bytes: 8388608
+
+# `05` §2 requires re-validating after EVERY redirect hop, which means
+# following them manually. A bounded chain also stops a redirect loop.
+max_redirects: 5
+
+# `04` §6: max 3 retries, exponential backoff with jitter, 5xx/timeout ONLY.
+# Never 404/403 — they fail identically every time, and retrying a bot wall
+# three times is three times the rudeness for the same answer.
+max_retries: 3
+backoff_base_s: 1.0
+backoff_max_s: 15.0
+
+# --- Cache (`03` §4 stage 3, `05` §5) --------------------------------------
+#
+# "Re-runs must never re-crawl. This is non-negotiable — it makes stages 4-8
+# iterable in seconds."
+cache_enabled: true
+
+# `05` §5 forbids an infinite TTL: "a retailer updates a listing; the
+# content-addressed cache keeps serving the old page forever".
+cache_ttl_days: 7
+
+# Failures are cached too, and shorter. Re-requesting a known 403 bot wall on
+# every run is pure rudeness for an answer we already have — but a block may
+# lift, so this expires sooner than a successful page.
+failure_cache_ttl_hours: 12

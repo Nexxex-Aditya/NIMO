@@ -1745,6 +1745,71 @@ half of it is what `04` §11 exists to prevent.
 **Status:** standing — P8 is half complete and the row says so.
 
 
+## 2026-09-11 — P8 complete: the fetch client, and why redirects are followed by hand
+**Decision:** The fetch client is built — `config/fetch.yaml`, robots.txt
+handling, per-domain rate limiting, a content-addressed page cache with a
+separate failure TTL, and manual per-hop redirect following. P8's gate is met.
+Verified end to end against real pages: chemist-4-u fetched and GTIN
+`5011309895612` extracted; Tesco's 403 recorded as `blocked` without retry;
+both served from cache on a second pass with no requests issued.
+
+**1. Redirects are followed manually, and that is the whole point.** `httpx`
+follows them perfectly well, but `05` §2 requires re-validating after *every*
+hop — "a page can return a 302 to an internal address; checking only the
+candidate URL and trusting the redirect chain defeats the whole control" — and
+an automatic follow leaves nowhere to run that check. `follow_redirects=False`
+plus a bounded manual loop is more code than the alternative, and the extra
+code *is* the control. Tested with a legitimate first URL that 302s to
+`169.254.169.254`, the cloud metadata endpoint `05` §2 names: the fetch is
+refused at that hop and the body never read.
+
+**2. The size cap is enforced while streaming**, for the same reason. `05` §2
+calls an unbounded or slow-drip response a resource-exhaustion vector, and a
+cap applied after download has already paid the cost it exists to avoid.
+
+**3. 403 and 404 are never retried; 5xx and timeouts are.** `04` §6 says so,
+and the measurement makes it concrete: **4 of 10 real retailers return a bot
+wall**, so retrying one three times is three times the rudeness for an answer
+that will not change. A 403/401/429 is recorded as `blocked` rather than
+`http_error`, because "they refused us" and "the page is broken" are different
+findings — and `05` §5's aggregate domain block is about telling them apart.
+
+**4. An unreachable robots.txt means ALLOWED**, per RFC 9309 and what every
+mainstream crawler does. Treating it as a blanket disallow would silently drop
+every site with a transient error — the plausible-wrong-answer shape `05` §5
+exists to name. robots is fetched **once per host**, never per URL: fetching
+it twenty times while crawling twenty pages would itself be the impolite
+behaviour robots.txt exists to prevent. A `Crawl-delay` longer than our
+interval is honoured; a shorter one does not speed us up, because
+`min_interval_s` is our floor rather than a target.
+
+**5. Failures are cached, with a shorter TTL than successes.** Re-requesting a
+known bot wall on every run is rudeness for an answer already held — and with
+4 of 10 retailers blocking, that is the common path rather than an
+optimisation. A block may lift, hence 12 hours against 7 days for a page.
+
+**6. Per-domain outcome counts** are tracked on the fetcher. `05` §5: "each
+fetch fails loud individually, but the systemic pattern — 'Boots recall just
+dropped to 0%' — is invisible without looking across rows." Now measurable:
+`{'www.tesco.com': {'blocked': 1}, 'www.chemist-4-u.com': {'ok': 1}}`.
+
+**7. The User-Agent must identify the project, and config load enforces it.**
+`04` §6 requires an identifying UA; a browser-impersonation string would
+disguise exactly the blocking `05` §5 asks us to measure, and would also be a
+quiet answer to Q6 that nobody decided. `load_fetch_config` refuses a UA
+without `nimo` in it.
+
+**Design note on the seam.** The fetcher returns a raw `FetchOutcome`, and
+`nimo.extract` turns it into `CandidateEvidence`. Keeping them apart is what
+makes parsing testable with no network layer and the network testable with no
+parser — the extraction tests run entirely on committed fixtures, and the
+fetch tests entirely on `MockTransport` with stubbed DNS.
+**Affects:** new `config/fetch.yaml`, new `src/nimo/fetch/` (`config.py`,
+`robots.py`, `cache.py`, `client.py`), new `tests/fetch/test_client.py`.
+`src/nimo/fetch/__init__.py`. `04-build-standards.md` §1 P8 row → done.
+**Status:** standing
+
+
 ---
 
 # Open questions — resolve with organizers

@@ -9,23 +9,24 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P8 (fetch + extract) — **HALF DONE**
-Last completed milestone: P7 (retrieval infrastructure).
-Next: finish P8's **fetch client** — robots.txt, per-domain rate limit, page
-cache, manual per-hop redirect following. Specified in `specs/fetch.md`
-§2-§4, unwritten. The SSRF guard, the extraction cascade and 10 scrubbed
-retailer fixtures ARE built and tested (44 tests).
+Phase: P9 (matcher) — NOT STARTED
+Last completed milestone: P8 (fetch + extract), gate met.
+Next milestone: P9. **No spec file exists yet** — write `specs/match.md` first.
+Gate (`04` §1): Precision@1 on the gold set. Authority: `03` §4 stage `[4]`,
+which `04` §13 flags as HARD-20% — it is the core algorithmic component.
 
-**What P8 measured, and it reaches past this phase:**
-- **JSON-LD Product on only 3 of 10 real pages.** P9's "GTIN hard rule is
-  near-decisive" rests on 30% availability, not near-universal.
-- **Amazon — the largest retailer in the dataset — publishes neither JSON-LD
-  nor OpenGraph.** Body text is its only evidence.
-- **4 of 10 pages are bot walls or JS shells** (tesco/weldricks 403, boots
-  6KB shell, ocado 0 bytes). Failure is the common path, not the edge case.
-- **chemist-4-u and pharmazondirect both report GTIN 5011309895612** for the
-  same product — the row whose gold label names a *third* retailer. This is
-  the evidence for scoring the PRODUCT rather than the URL string.
+**P8's measurements change P9's design before it starts:**
+- **JSON-LD Product on only 3 of 10 real pages.** `03` §4 stage 4's GTIN hard
+  rule is right but fires on ~30% of pages, not near-universally. The weighted
+  features carry most rows.
+- **Amazon publishes neither JSON-LD nor OpenGraph** — body text only, on the
+  largest retailer in the dataset.
+- **4 of 10 pages are bot walls or JS shells.** `CandidateEvidence` with a
+  failure `fetch_status` is a main path; P9 must rank a candidate list where
+  several entries have no evidence at all.
+- **chemist-4-u and pharmazondirect both report GTIN 5011309895612** for one
+  product whose gold label names a third retailer — the evidence for scoring
+  the PRODUCT rather than the URL string.
 
 ## Carried-forward work, explicitly not done
 
@@ -53,7 +54,7 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (515 passed)
+  uv run pytest                          -> EXIT 0  (537 passed)
 
 ## Do NOT re-do
 
