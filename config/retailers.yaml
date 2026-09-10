@@ -1,9 +1,215 @@
 # retailer_raw (exact RETAILER column value) -> {name, domain}
-# `name`: REQUIRED complete for all 50 distinct values before P2 is done.
-# `domain`: may stay partial until P7 (03 §4 stage 2, S4).
+#
+# Hand-reviewed, all 50 entries, per `specs/loader.md` §4 and `01` §12.
+# NOT regex-derived-and-spot-checked: the obvious regex was measured against
+# these exact 50 values and fails on 21 (42%), one of them silently
+# ("BOOTS (GB) (HOMESCAN)" -> "(HOMESCAN)", discarding the largest retailer
+# in the dataset). Every entry below was reviewed individually.
+#
+# Review rule applied to `name`:
+#   1. Drop the NIQ code prefix ("E0028 ", "P00R4 ", ...).
+#   2. Drop the country parenthetical ("(GB)", "(UK)").
+#   3. Collapse whitespace.
+#   4. Drop NIQ panel/feed qualifiers that are not part of the trading name
+#      (HOMESCAN, EPOS, CENSUS, NEW, NEW FEED, TRAVEL, OMNI, ESA). Each such
+#      entry is commented with what was dropped, so the judgement is auditable
+#      rather than implicit.
+#
+# Review rule applied to `domain`:
+#   Filled only where the entry is a real UK consumer storefront that can be
+#   identified with confidence. Left `null` for audit/panel feeds, data
+#   providers, internal labels, manufacturer shipment feeds, and retailers
+#   that no longer trade. `null` is safe: `03` §4 stage 2 skips strategy S4
+#   for unmapped retailers rather than guessing a site: filter. A wrong domain
+#   would silently poison retrieval for every row of that retailer, so an
+#   uncertain domain is deliberately left unset — `domain` may stay partial
+#   until P7 (`specs/scaffold.md`), `name` may not.
+#
+# KEYS ARE EXACT RAW STRINGS. Two of them carry trailing whitespace
+# ("WILKINSON ", "E00E2 (GB) SOMERFIELD ", "E00I1 (GB)  T & S EPOS ") and one
+# carries a double space. They are quoted for that reason — do not "tidy" them,
+# the key must match the cell value byte-for-byte or the loader raises.
+
 "P00R4 (GB) BOOTS":
   name: BOOTS
   domain: boots.com
 "BOOTS (GB) (HOMESCAN)":
+  # Sentinel case. A naive regex captures "(HOMESCAN)" here and throws BOOTS
+  # away. Homescan is an NIQ consumer-panel feed, not a retailer name.
   name: BOOTS
   domain: boots.com
+"AMAZON (GB)":
+  name: AMAZON
+  domain: amazon.co.uk
+"AMAZON NEW (GB)":
+  # "NEW" is a feed qualifier; same retailer as "AMAZON (GB)".
+  name: AMAZON
+  domain: amazon.co.uk
+"BRANDBANK (UK)":
+  # NIQ product-content syndication service, not a storefront.
+  name: BRANDBANK
+  domain: null
+"P00D6 (GB) POSITIVE SOLUTIONS LTD":
+  # Data/audit provider, not a storefront.
+  name: POSITIVE SOLUTIONS LTD
+  domain: null
+"E00N3 (GB) CWS CENSUS":
+  # CWS = Co-operative Wholesale Society; CENSUS is the audit-type qualifier.
+  # Domain deliberately unset: the co-op grocery site is a plausible but
+  # unverified mapping for an audit feed, and a wrong site: filter is worse
+  # than none.
+  name: CWS
+  domain: null
+"E0028 (GB) WAITROSE":
+  name: WAITROSE
+  domain: waitrose.com
+"E0030 (GB) SUPERDRUG":
+  name: SUPERDRUG
+  domain: superdrug.com
+"InTouch (GB)":
+  # Mixed-case key — the regex failed on this one for that reason alone.
+  # NIQ panel feed.
+  name: INTOUCH
+  domain: null
+"E00F9 (GB) FIELD RETAIL AUDIT":
+  name: FIELD RETAIL AUDIT
+  domain: null
+"E0055 (GB) SAINSBURY":
+  name: SAINSBURY
+  domain: sainsburys.co.uk
+"OCADO":
+  name: OCADO
+  domain: ocado.com
+"E0032 (GB) LLOYDS":
+  # Oral-health retail context: Lloyds Pharmacy, not the bank.
+  name: LLOYDS PHARMACY
+  domain: lloydspharmacy.com
+"OMNI LLOYDS PHARMACY (GB)":
+  # "OMNI" is a feed qualifier; same retailer as "E0032 (GB) LLOYDS".
+  name: LLOYDS PHARMACY
+  domain: lloydspharmacy.com
+"E00I7 (GB) WAL*MART":
+  # No UK consumer storefront under this name; the historical UK arm was ASDA,
+  # which is not the same entity. Domain left unset rather than inferred.
+  name: WAL*MART
+  domain: null
+"E0022 (GB) TESCO":
+  name: TESCO
+  domain: tesco.com
+"CO-OP PHARMACY":
+  # The Co-op pharmacy arm was divested; no current storefront under this name.
+  name: CO-OP PHARMACY
+  domain: null
+"E00D9 (GB) OXFORD OFFICE USE ONLY":
+  # Internal NIQ label, not a retailer at all.
+  name: OXFORD OFFICE USE ONLY
+  domain: null
+"E00R3 (GB) LIDL":
+  name: LIDL
+  domain: lidl.co.uk
+"ESA LIDL":
+  # "ESA" is a feed qualifier; same retailer as "E00R3 (GB) LIDL".
+  name: LIDL
+  domain: lidl.co.uk
+"NON COOP CPS UNCODED (UK)":
+  name: NON COOP CPS UNCODED
+  domain: null
+"NON COOP CPS PROD LINK (UK)":
+  name: NON COOP CPS PROD LINK
+  domain: null
+"E00R7 (GB) MORRISONS":
+  name: MORRISONS
+  domain: morrisons.com
+"POUNDLAND":
+  name: POUNDLAND
+  domain: poundland.co.uk
+"POUNDLAND EPOS":
+  # "EPOS" is a till-data feed qualifier; same retailer as "POUNDLAND".
+  name: POUNDLAND
+  domain: poundland.co.uk
+"B & M BARGAINS":
+  name: B & M BARGAINS
+  domain: bmstores.co.uk
+"P&G SHIPMENT (GB)":
+  # Manufacturer shipment feed (Procter & Gamble), not a retailer.
+  name: P&G
+  domain: null
+"POUND STRETCHER":
+  name: POUNDSTRETCHER
+  domain: poundstretcher.co.uk
+"HOME BARGAINS":
+  name: HOME BARGAINS
+  domain: homebargains.co.uk
+"E00L4 (GB) PS & A INDEPENDENTS":
+  name: PS & A INDEPENDENTS
+  domain: null
+"WHSMITH TRAVEL":
+  # "TRAVEL" is a store-format qualifier, not a separate retailer.
+  name: WHSMITH
+  domain: whsmith.co.uk
+"POUNDWORLD":
+  # Ceased trading 2018; no storefront.
+  name: POUNDWORLD
+  domain: null
+"E00V1 (GB) SPAR":
+  name: SPAR
+  domain: spar.co.uk
+"SPAR NEW FEED":
+  # "NEW FEED" is a feed qualifier; same retailer as "E00V1 (GB) SPAR".
+  name: SPAR
+  domain: spar.co.uk
+"P00N8 (GB) MARKS & SPENCER":
+  name: MARKS & SPENCER
+  domain: marksandspencer.com
+"E00R9 (GB) MOSS PHARMACY":
+  # Acquired/rebranded; no current storefront under this name.
+  name: MOSS PHARMACY
+  domain: null
+"E00V9 (GB) MUSGRAVES NI":
+  # Wholesaler (Northern Ireland), not a consumer storefront.
+  name: MUSGRAVE NI
+  domain: null
+"E00N5 (GB) LONDIS":
+  name: LONDIS
+  domain: londis.co.uk
+"E00Y6 (GB) BP":
+  # Forecourt convenience; no product-level consumer catalogue.
+  name: BP
+  domain: null
+"E0016 (GB) ALDI":
+  name: ALDI
+  domain: aldi.co.uk
+"E00I6 (GB) Y P ELECTRONICS":
+  name: Y P ELECTRONICS
+  domain: null
+"BARGAIN BOOZE":
+  name: BARGAIN BOOZE
+  domain: bargainbooze.co.uk
+"E0093 (GB) WILKINSON":
+  # Wilko ceased trading 2023.
+  name: WILKINSON
+  domain: null
+"WILKINSON ":
+  # Distinct key from "E0093 (GB) WILKINSON" — note the trailing space, which
+  # is part of the actual cell value. Same retailer, separate entry required.
+  name: WILKINSON
+  domain: null
+"E00G3 (GB) BUDGENS EPOS":
+  # "EPOS" is a till-data feed qualifier.
+  name: BUDGENS
+  domain: budgens.co.uk
+"E0013 (GB) UNITED NORWEST CO OP":
+  name: UNITED NORWEST CO OP
+  domain: null
+"P0010 (GB) ICELAND":
+  name: ICELAND
+  domain: iceland.co.uk
+"E00E2 (GB) SOMERFIELD ":
+  # Trailing space in the raw key. Somerfield was absorbed into the Co-op.
+  name: SOMERFIELD
+  domain: null
+"E00I1 (GB)  T & S EPOS ":
+  # Double space after "(GB)" and a trailing space, both part of the raw key.
+  # "EPOS" is a feed qualifier.
+  name: T & S
+  domain: null
