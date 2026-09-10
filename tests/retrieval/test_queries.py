@@ -231,12 +231,19 @@ def test_shipped_config_loads_and_is_internally_consistent() -> None:
 def test_a_strategy_limit_above_the_cap_is_refused(tmp_path: Path) -> None:
     """One strategy filling the whole budget would starve the others — S5 in
     particular would crowd out a barcode-exact S1 hit."""
+    # Built from the shipped config with one field overridden, rather than
+    # retyped: a hand-written YAML fixture silently rots into "missing key"
+    # every time a setting is added, which is a failure about the fixture
+    # rather than about the rule under test.
+    import yaml
+
+    from nimo.retrieval.config import CONFIG_PATH
+
+    data = yaml.safe_load(CONFIG_PATH.read_text(encoding="utf-8"))
+    data["max_candidates"] = 5
+    data["per_strategy_limit"] = 50
+
     path = tmp_path / "retrieval.yaml"
-    path.write_text(
-        "max_candidates: 5\nper_strategy_limit: 50\nstrategy_order: [S1]\nengines: [google]\n"
-        "connect_timeout_s: 1\nread_timeout_s: 1\nmax_retries: 1\nbackoff_base_s: 1\n"
-        "backoff_max_s: 2\nmin_interval_s: 1\n",
-        encoding="utf-8",
-    )
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
     with pytest.raises(RetrievalConfigError, match="exceeds max_candidates"):
         load_retrieval_config(path)

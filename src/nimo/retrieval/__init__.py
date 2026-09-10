@@ -3,6 +3,14 @@
 Public surface only.
 """
 
+from nimo.retrieval.breaker import EngineBreaker
+from nimo.retrieval.cache import (
+    CacheError,
+    SearchCache,
+    cache_key,
+    default_cache,
+    now_seconds,
+)
 from nimo.retrieval.canonical import (
     ALLOWED_SCHEMES,
     UrlError,
@@ -21,6 +29,12 @@ from nimo.retrieval.queries import SearchQuery, StrategyName, build_queries, ret
 from nimo.retrieval.search import SearchFn, SearchResult, merge_candidates
 
 __all__ = [
+    "now_seconds",
+    "default_cache",
+    "cache_key",
+    "SearchCache",
+    "EngineBreaker",
+    "CacheError",
     "ALLOWED_SCHEMES",
     "CONFIG_PATH",
     "RetrievalConfig",

@@ -1483,6 +1483,109 @@ Q6 in the open-questions table.
 rather than on infrastructure.
 
 
+## 2026-09-11 — Free search engines made viable as primary: portfolio, circuit breaker, early exit, cache
+**Decision:** The CAPTCHA blocking recorded in the previous entry is solved by
+engineering rather than by spending. Four changes, each measured, take a full
+`qa` run from "blocked within a few dozen queries" to **~42 minutes cold and
+effectively free thereafter**. A paid search API remains the documented
+backup, and is deliberately not implemented.
+
+**1. The engine portfolio was chosen by measurement, not reputation.** Four
+real product queries per engine, paced 2s apart so the probe would not cause
+the blocking it was measuring:
+
+| engine | blocked | results/query | relevant |
+|---|---|---|---|
+| brave | 0/4 | 20.0 | **95%** |
+| startpage | 0/4 | 34.8 | **91%** |
+| bing | 0/4 | 10.0 | 25% |
+| mojeek | 0/4 | 0.0 | enabled for diversity, returns nothing for UK retail |
+| duckduckgo | **4/4** | — | CAPTCHA |
+| qwant | **4/4** | — | CAPTCHA |
+| google | **4/4** | — | Suspended: CAPTCHA |
+
+Google, DuckDuckGo and Qwant are excluded regardless of result quality:
+**an engine that stops answering partway through a 400-row run is worse than
+one that never answered, because the run looks like it worked.** Bing earns
+its place on index independence, not relevance. Mojeek's zero is recorded
+rather than quietly dropped.
+
+**2. No single free engine is reliable, and that is the design constraint —
+not a caveat.** In a later probe **Brave, the best-scoring engine measured,
+began CAPTCHA-ing after about six queries.** What kept that run producing
+candidates was Startpage and Bing continuing. So the answer is a portfolio
+with a per-engine circuit breaker, not a ranked preference list. `04` §6
+already required a breaker; the unit that gets blocked is the *engine*.
+
+Three consecutive failures opens an engine for 15 minutes. A success clears
+the streak, so flaky is not confused with blocked; recovery is half-open, so
+one failure after a cooldown does not immediately re-open it. A CAPTCHA means
+"come back later", so this cooldown is minutes — unrelated to the sub-second
+retry backoff for a flaky response. All engines broken raises, because "no
+engine answered" and "no results exist" are different facts and only one is
+about the product (`04` §4).
+
+**3. Early exit on a full candidate cap, and a deduplication idea killed by
+measurement.** Stop issuing strategies once `max_candidates` unique safe
+candidates are collected — further strategies spend queries on candidates that
+would be discarded. I had assumed cross-row query dedup would be the big
+lever; measured, **1904 of 1904 `qa` queries are distinct**, because S5 is the
+verbatim description and S3 carries per-row variant terms. It would have
+bought nothing, and measuring first saved building it.
+
+**4. Cache-first**, which `04` §6 already required and nothing had implemented.
+Content-addressed by (query + engine set), TTL-bounded because `05` §5 forbids
+an infinite one. The engine set is part of the key deliberately: the same query
+against `[brave, startpage]` and `[bing]` are different questions, and serving
+one for the other would make a degraded run look like a healthy cached one.
+
+**5. Pacing was the original sin.** `min_interval_s` was 0.25s — four queries
+a second — which is what got Google and DuckDuckGo to CAPTCHA in the first
+place, and the symptom was not an error but plausible-looking junk results.
+Now 2.0s.
+
+**What it measures, live, on 12 real `qa` rows:**
+
+    strategy calls made : 37   (naive, all strategies: 51)
+    candidates collected: 240  = 20.0/row - the cap filled on EVERY row
+    cold wall time      : 72.4s
+    warm wall time      : 5.3s (7%), byte-identical candidates
+    engines broken      : brave x1, and the run continued on the other two
+
+Full 412-row `qa` projection: ~1270 queries, ~42 minutes cold. The saving falls
+short of the ideal 412 precisely because Brave dropped out partway — fewer
+results per query means more strategies are needed to fill the cap. That is
+the portfolio and early exit interacting as designed, and it is visible in the
+numbers rather than hidden by them.
+
+**6. A design flaw the tests exposed.** `SearxngClient` read the wall clock
+internally, which made cooldown behaviour untestable without sleeping and put
+a clock read inside logic (`04` §5). The clock is now injected, as the P6a
+runner already does. The test that caught it was written to assert real
+behaviour and failed for the right reason.
+
+**7. The paid API is the backup and the seam already exists.**
+`merge_candidates` takes a `SearchFn` — `(SearchQuery, int) -> list[
+SearchResult]` — so a paid backend is a new implementation of that callable
+plus a key in `.env`, not a change to query construction, canonicalization,
+merging or the cap. **Deliberately not implemented:** there is no key to test
+against, `04` §6 forbids network in tests, and a client written from
+documentation rather than a live endpoint is exactly the class of
+fabricated-but-plausible code that produced the invented Docker tag earlier in
+this project. The four steps to add one are in `config/retrieval.yaml`.
+
+**Measured position: free engines are viable as primary.** The paid API is
+insurance against all three portfolio engines correlating in a block.
+**Affects:** new `src/nimo/retrieval/breaker.py`, new
+`src/nimo/retrieval/cache.py`, new `tests/retrieval/test_resilience.py` (20
+tests). `client.py` (breaker + cache + injected clock), `search.py` (early
+exit), `config.py` (five new fields). `config/retrieval.yaml` (rewritten from
+measurement), `config/searxng/settings.yml` (mojeek/bing enabled).
+`specs/retrieval.md` new §5a, §1c resolved. `04-build-standards.md` §1 P7 row.
+**Status:** standing — P7's remaining open item is the *recall* gate, which
+needs the gold set, not the engines.
+
+
 ---
 
 # Open questions — resolve with organizers

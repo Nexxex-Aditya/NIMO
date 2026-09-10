@@ -16,21 +16,21 @@ Gate (`04` §1): frozen HTML fixtures for 10 retailers. Authority: `03` §4
 stage `[3]`, `04` §6, `05` §2 and `05` §6 (the full DoD additions apply — P8
 is a fetch module).
 
-**P7's gate is open and now blocked on a DECISION, not on infrastructure.**
-SearxNG is up (`docker compose up -d searxng`, needs `SEARXNG_SECRET` in
-`.env`) and the full path works end to end. But **Google and DuckDuckGo
-CAPTCHA-blocked the instance after a few dozen queries from one IP**, so the
-1/5 recall measured is rate limiting, not retrieval, and is void. 412 rows x
-3-5 strategies is 1200-2000 queries; no free engine will serve that.
-`specs/retrieval.md` §1c lists the four options (paid search API, automation-
-tolerant engines, demo scoped to 10 rows, or an hours-long backed-off crawl).
-**This needs a cost/scope decision — see Q6, now High.**
+**P7: retrieval WORKS on free engines. The recall gate stays open on the
+gold set, not on the engines.** Measured live on 12 qa rows: 20.0
+candidates/row (cap filled every row), cold 72.4s, warm 5.3s (7%), and Brave
+circuit-broke mid-run while Startpage and Bing carried it. Full qa projection
+~1270 queries / ~42 min cold, then effectively free.
 
-**P8 inherits three things from P7 that are easy to get wrong:**
-`05` §2's private-range check must re-run after **every redirect hop**, not
-just on the original URL; it must stay scoped to fetched candidates and never
-become a global outbound guard (the CIS LLM endpoint is RFC1918); and P8 owns
-DNS resolution, which P7 deliberately does not do.
+Engines are chosen by measurement (`specs/retrieval.md` §5a):
+brave/startpage 91-95% relevant and unblocked; **google, duckduckgo and qwant
+CAPTCHA 4/4 and are excluded** — an engine that dies partway through a run is
+worse than one that never answered, because the run looks like it worked.
+A paid search API is the documented backup, deliberately not implemented (no
+key to test against, and `04` §6 forbids network in tests).
+
+Start it with `docker compose up -d searxng` — needs `SEARXNG_SECRET` in
+`.env` or the container restart-loops with the reason buried in its logs.
 
 ## Carried-forward work, explicitly not done
 
@@ -58,7 +58,7 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (449 passed)
+  uv run pytest                          -> EXIT 0  (469 passed)
 
 ## Do NOT re-do
 

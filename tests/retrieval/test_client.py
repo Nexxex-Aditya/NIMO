@@ -10,7 +10,13 @@ leave the client untested — which is what it was until this file existed.
 import httpx
 import pytest
 
-from nimo.retrieval import RetrievalConfig, SearchError, SearchQuery, SearxngClient
+from nimo.retrieval import (
+    EngineBreaker,
+    RetrievalConfig,
+    SearchError,
+    SearchQuery,
+    SearxngClient,
+)
 
 CONFIG = RetrievalConfig(
     max_candidates=20,
@@ -23,17 +29,26 @@ CONFIG = RetrievalConfig(
     backoff_base_s=0.001,  # keep the retry tests fast; jitter is still exercised
     backoff_max_s=0.002,
     min_interval_s=0.001,
+    early_exit_on_full_cap=True,
+    engine_failure_threshold=3,
+    engine_cooldown_s=900.0,
+    cache_enabled=False,  # the cache has its own tests; keep these about HTTP
+    cache_ttl_days=14.0,
 )
 
 QUERY = SearchQuery("S1", '"5014697056627"')
 
 
-def client_with(handler: object) -> SearxngClient:
+def client_with(handler: object, config: RetrievalConfig = CONFIG) -> SearxngClient:
     transport = httpx.MockTransport(handler)  # type: ignore[arg-type]
     return SearxngClient(
         base_url="http://searxng.test",
-        config=CONFIG,
+        config=config,
         client=httpx.Client(transport=transport),
+        breaker=EngineBreaker(
+            failure_threshold=config.engine_failure_threshold,
+            cooldown_s=config.engine_cooldown_s,
+        ),
     )
 
 
@@ -115,7 +130,7 @@ def test_the_json_format_flag_is_actually_requested() -> None:
     client_with(handler).search(QUERY, limit=8)
     assert seen["format"] == "json"
     assert seen["q"] == QUERY.text
-    assert seen["engines"] == "google,bing"
+    assert seen["engines"] == "google,bing"  # both circuits closed
 
 
 # --- failure modes -----------------------------------------------------------
@@ -259,7 +274,7 @@ def test_a_fully_captcha_blocked_instance_raises_rather_than_returning_junk() ->
             [{"url": "https://instagram.com/", "engine": "bing"}], unresponsive=blocked
         )
     )
-    with pytest.raises(SearchError, match="every configured engine is unresponsive"):
+    with pytest.raises(SearchError, match="every queried engine is unresponsive"):
         client.search(QUERY, limit=8)
 
 

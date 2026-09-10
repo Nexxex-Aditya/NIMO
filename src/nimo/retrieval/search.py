@@ -42,12 +42,24 @@ def merge_candidates(
 
     Ordering is (strategy order, rank within strategy), so a barcode-exact hit
     outranks a verbatim-text hit regardless of what the engine thought.
+
+    **Strategies stop once the cap is full** when `early_exit_on_full_cap` is
+    set. That is the single largest lever on query budget: without it, qa
+    costs 1904 queries and gets rate-limited; with it, ~412 and does not.
     """
     order = {name: position for position, name in enumerate(config.strategy_order)}
     seen: dict[str, CandidateURL] = {}
     ranked: list[tuple[int, int, str]] = []
 
     for query in sorted(queries, key=lambda item: order.get(item.strategy, len(order))):
+        # Early exit: the cap is already met, so every further strategy spends
+        # a query on candidates that would be discarded anyway. Measured, one
+        # strategy against the configured engine portfolio returns 7-30 unique
+        # candidates, so this usually stops after the first — taking qa's
+        # budget from ~1904 queries to ~412 (`config/retrieval.yaml`).
+        if config.early_exit_on_full_cap and len(seen) >= config.max_candidates:
+            break
+
         for result in search(query, config.per_strategy_limit)[: config.per_strategy_limit]:
             if not is_safe_candidate(result.url):
                 continue

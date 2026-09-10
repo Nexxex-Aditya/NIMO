@@ -29,6 +29,11 @@ class RetrievalConfig:
     backoff_base_s: float
     backoff_max_s: float
     min_interval_s: float
+    early_exit_on_full_cap: bool
+    engine_failure_threshold: int
+    engine_cooldown_s: float
+    cache_enabled: bool
+    cache_ttl_days: float
 
 
 def _positive_int(data: dict[str, object], key: str, path: Path) -> int:
@@ -43,6 +48,13 @@ def _positive_float(data: dict[str, object], key: str, path: Path) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
         raise RetrievalConfigError(f"{path}: `{key}` must be a positive number; got {value!r}.")
     return float(value)
+
+
+def _read_bool(data: dict[str, object], key: str, path: Path) -> bool:
+    value = data.get(key)
+    if not isinstance(value, bool):
+        raise RetrievalConfigError(f"{path}: `{key}` must be a boolean; got {value!r}.")
+    return value
 
 
 def _str_tuple(data: dict[str, object], key: str, path: Path) -> tuple[str, ...]:
@@ -72,6 +84,11 @@ def load_retrieval_config(path: Path = CONFIG_PATH) -> RetrievalConfig:
         backoff_base_s=_positive_float(data, "backoff_base_s", path),
         backoff_max_s=_positive_float(data, "backoff_max_s", path),
         min_interval_s=_positive_float(data, "min_interval_s", path),
+        early_exit_on_full_cap=_read_bool(data, "early_exit_on_full_cap", path),
+        engine_failure_threshold=_positive_int(data, "engine_failure_threshold", path),
+        engine_cooldown_s=_positive_float(data, "engine_cooldown_s", path),
+        cache_enabled=_read_bool(data, "cache_enabled", path),
+        cache_ttl_days=_positive_float(data, "cache_ttl_days", path),
     )
     if config.per_strategy_limit > config.max_candidates:
         raise RetrievalConfigError(

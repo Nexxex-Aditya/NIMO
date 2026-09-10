@@ -26,9 +26,83 @@ per_strategy_limit: 8
 #   S5     dev 412/412        qa 412/412
 strategy_order: [S1, S2, S3, S4, S5]
 
-# SearxNG engines. Pinned rather than "all": `03` §4 stage 2 requires
-# reproducibility, and SearxNG's default engine set changes between releases.
-engines: [google, bing, duckduckgo]
+# SearxNG engines, MEASURED not chosen by reputation (2026-09-11).
+#
+# Four real product queries per engine, paced 2s apart so the probe would not
+# cause the blocking it was measuring:
+#
+#   engine       blocked  results/q  relevant
+#   brave           0/4      20.0       95%    <- best quality
+#   startpage       0/4      34.8       91%    <- most results
+#   bing            0/4      10.0       25%    <- weak, but independent
+#   mojeek          0/4       0.0        -     enabled, returns nothing for UK retail
+#   duckduckgo      4/4         -         -    CAPTCHA
+#   qwant           4/4         -         -    CAPTCHA
+#   google          4/4         -         -    Suspended: CAPTCHA
+#
+# Google, DuckDuckGo and Qwant CAPTCHA-block a single IP within a few dozen
+# queries. They are excluded regardless of result quality — an engine that
+# stops answering partway through a 400-row run is worse than one that never
+# answered, because the run looks like it worked.
+#
+# **No single free engine is reliable, and that is the design constraint.**
+# Brave itself began blocking after ~6 queries in a later probe. What kept
+# that run producing candidates was the other two continuing — which is why
+# this is a PORTFOLIO with a per-engine circuit breaker, not a preference
+# list. Bing earns its place on independence, not relevance.
+engines: [brave, startpage, bing]
+
+# --- Query budget ----------------------------------------------------------
+#
+# Stop issuing strategies for a row once `max_candidates` unique, safe
+# candidates have been collected. Measured: a single strategy against this
+# engine portfolio returns 7-30 unique candidates, so the cap is usually met
+# by S1 (qa, where 412/412 rows have a barcode) or S3 (dev).
+#
+# MEASURED on 12 real qa rows against the live portfolio (2026-09-11), not
+# projected from theory:
+#
+#   strategy calls made : 37   (naive, all strategies: 51)  -> 73%
+#   candidates collected: 240  = 20.0/row, i.e. the cap filled on every row
+#   cold wall time      : 72.4s
+#   WARM wall time      : 5.3s (7%), byte-identical candidates
+#   engines broken      : brave x1 - and the run continued on the other two
+#
+# Full 412-row qa projection: ~1270 queries, ~42 minutes cold, then free.
+# The saving is less than the ideal 412 because Brave dropped out partway and
+# fewer results per query means more strategies are needed to fill the cap —
+# which is the portfolio and early exit interacting exactly as intended.
+#
+# 42 minutes for a run that COMPLETES, is cached, and is resumable is the
+# whole point. The second run costs 7% of the first, so iterating on the
+# matcher and running the demo are both effectively free.
+#
+# Cross-row deduplication was measured and deliberately NOT built: 1904 of
+# 1904 qa queries are distinct, because S5 is the verbatim description and S3
+# carries per-row variant terms. It would have bought nothing.
+#
+# Set false to force every strategy for a recall experiment, where the point
+# is to measure reach rather than to spend the budget well.
+early_exit_on_full_cap: true
+
+# --- Per-engine circuit breaker (`04` §6) ----------------------------------
+#
+# "N consecutive failures on a domain -> stop hitting it, record the fact,
+# continue with other domains." Applied per ENGINE, because that is the unit
+# that gets blocked. A CAPTCHA is not a transient error: it means "you are
+# rate limited, come back later", so the cooldown is minutes, not the
+# sub-second retry backoff below.
+engine_failure_threshold: 3      # consecutive CAPTCHAs/errors before opening
+engine_cooldown_s: 900           # 15 min before that engine is tried again
+
+# --- Search-result cache (`04` §6 "cache-first") ---------------------------
+#
+# Content-addressed by (engine set + query). A cache hit issues no request, so
+# a re-run costs zero queries and cannot be blocked. This is what makes
+# iterating on the matcher affordable, and what lets a partially-blocked run
+# be resumed later without redoing the half that succeeded.
+cache_enabled: true
+cache_ttl_days: 14               # `05` §5 forbids an infinite TTL
 
 # `04` §6 — timeouts ALWAYS set, both halves. A read timeout with no connect
 # timeout still hangs forever on a black-holed host.
@@ -40,7 +114,35 @@ max_retries: 3
 backoff_base_s: 0.5
 backoff_max_s: 8.0
 
-# Politeness toward the local SearxNG instance, which in turn fans out to
-# upstream engines. Too fast and the upstreams rate-limit the instance, which
-# looks like a retrieval quality problem rather than a throttling one.
-min_interval_s: 0.25
+# Politeness toward the upstream engines the local instance fans out to.
+#
+# Was 0.25s (4 queries/sec). That is what got Google and DuckDuckGo to
+# CAPTCHA within a few dozen queries, and the symptom was not an error but
+# plausible-looking junk results. 2s x ~412 queries (with early exit) is
+# about 14 minutes for a full qa run, which is a fine trade for a run that
+# actually finishes.
+min_interval_s: 2.0
+
+# --- Paid API as backup, NOT primary ---------------------------------------
+#
+# The seam already exists and is deliberately the only thing that does:
+# `merge_candidates` takes a `SearchFn` — `(SearchQuery, int) -> list[
+# SearchResult]` — so a paid backend (Brave Search API, Serper, Bing Web
+# Search) is a new implementation of that callable plus a key in `.env`, not a
+# change to query construction, canonicalization, merging or the cap.
+#
+# No paid backend is implemented, deliberately: there is no key to test
+# against, `04` §6 forbids network calls in tests, and a client written
+# against documentation rather than a live endpoint is exactly the class of
+# fabricated-and-plausible code that produced the invented Docker tag earlier
+# in this project.
+#
+# What adding one requires, when a key exists:
+#   1. `src/nimo/retrieval/<provider>.py` exposing a `SearchFn`
+#   2. `<PROVIDER>_API_KEY` in `.env` (gitignored, `04` §9)
+#   3. a `backend:` key here, defaulting to `searxng`
+#   4. fixture tests via `httpx.MockTransport`, as `test_client.py` already does
+#
+# The measured position: free engines ARE viable as primary. A paid API is
+# insurance against all three portfolio engines correlating in a block, not
+# the plan.

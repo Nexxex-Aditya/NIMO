@@ -38,3 +38,34 @@ outgoing:
   max_request_timeout: 15.0
   pool_connections: 20
   pool_maxsize: 10
+
+# --- Engine selection, measured 2026-09-11 ---------------------------------
+#
+# Probed each engine with four real product queries from the dev sheet, paced
+# 2s apart so the probe would not cause the blocking it was measuring:
+#
+#   engine       blocked  results/q  relevant   note
+#   brave           0/4      20.0       95%
+#   startpage       0/4      34.8       91%
+#   bing            0/4      10.0       25%
+#   mojeek          0/4       0.0        -      disabled by default
+#   duckduckgo      4/4         -         -     CAPTCHA
+#   qwant           4/4         -         -     CAPTCHA
+#   google          4/4         -         -     Suspended: CAPTCHA
+#   yahoo           4/4         -         -     parsing error
+#
+# Google, DuckDuckGo and Qwant CAPTCHA-block a single IP within a few dozen
+# queries and are therefore unusable as a primary source for a 400+ row run,
+# regardless of their result quality. They stay available for manual use in
+# the UI but are not in the pipeline's engine list (`config/retrieval.yaml`).
+#
+# Mojeek is enabled here because it runs a genuinely INDEPENDENT index (not a
+# Bing/Google reseller), which is what makes it worth having: if Brave and
+# Startpage ever correlate in a block, Mojeek is unlikely to correlate with
+# them.
+engines:
+  - name: mojeek
+    disabled: false
+  - name: bing
+    disabled: false
+

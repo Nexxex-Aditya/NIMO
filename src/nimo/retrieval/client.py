@@ -11,12 +11,14 @@ public instances rate-limit and are not reproducible.
 
 import random
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 import httpx
 import structlog
 
+from nimo.retrieval.breaker import EngineBreaker
+from nimo.retrieval.cache import SearchCache, now_seconds
 from nimo.retrieval.config import RetrievalConfig
 from nimo.retrieval.queries import SearchQuery
 from nimo.retrieval.search import SearchResult
@@ -44,13 +46,26 @@ class SearxngClient:
     base_url: str
     config: RetrievalConfig
     client: httpx.Client
+    breaker: EngineBreaker
+    cache: SearchCache | None = None
+    # Injected so time-dependent behaviour — cooldowns, cache expiry — is
+    # testable without sleeping, and so nothing in this class reads the wall
+    # clock inside logic (`04` §5). The runner does the same with its clock.
+    clock: Callable[[], float] = now_seconds
     _last_request: float = 0.0
 
     @classmethod
-    def create(cls, base_url: str, config: RetrievalConfig) -> "SearxngClient":
+    def create(
+        cls, base_url: str, config: RetrievalConfig, cache: SearchCache | None = None
+    ) -> "SearxngClient":
         return cls(
             base_url=base_url.rstrip("/"),
             config=config,
+            breaker=EngineBreaker(
+                failure_threshold=config.engine_failure_threshold,
+                cooldown_s=config.engine_cooldown_s,
+            ),
+            cache=cache,
             client=httpx.Client(
                 timeout=httpx.Timeout(
                     connect=config.connect_timeout_s,
@@ -85,16 +100,36 @@ class SearxngClient:
     def search(self, query: SearchQuery, limit: int) -> list[SearchResult]:
         """Issue one query. Raises `SearchError` after exhausting retries.
 
-        Raising rather than returning `[]` is deliberate (`04` §4): an empty
-        list is a legitimate answer meaning "no results", and collapsing a
+        **Cache-first** (`04` §6): a hit issues no request, so it cannot be
+        blocked or rate limited. That is most of what makes free engines
+        viable as the primary source — a re-run costs nothing, and a run
+        interrupted by a block resumes without redoing the half that worked.
+
+        **Only engines whose circuit is closed are queried.** When Brave
+        CAPTCHAs it drops out and Startpage and Bing carry the run; hammering
+        a blocked engine wastes the request and extends the block.
+
+        Raising rather than returning an empty list is deliberate (`04` §4):
+        empty is a legitimate answer meaning "no results", and collapsing a
         network failure into it would silently degrade recall with nothing to
         find later. The P6a runner turns this into a typed `RowFailure`.
         """
-        params = {
-            "q": query.text,
-            "format": "json",
-            "engines": ",".join(self.config.engines),
-        }
+        now = self.clock()
+        engines = tuple(self.breaker.available(self.config.engines, now))
+        if not engines:
+            raise SearchError(
+                f"every engine is circuit-broken: {sorted(self.breaker.blocked_engines)}. "
+                f"'No engine answered' and 'no results exist' are different facts and only "
+                f"one is about the product, so this raises rather than returning empty. "
+                f"Wait out the {self.config.engine_cooldown_s:.0f}s cooldown, or add engines."
+            )
+
+        if self.cache is not None:
+            cached = self.cache.get(query.text, engines, now)
+            if cached is not None:
+                return cached[:limit]
+
+        params = {"q": query.text, "format": "json", "engines": ",".join(engines)}
         last_error: Exception | None = None
 
         for attempt in range(self.config.max_retries + 1):
@@ -106,7 +141,7 @@ class SearxngClient:
             except httpx.HTTPError as error:
                 # Transport-level failure (DNS, connection refused). Not
                 # retried: a SearxNG that is not running will not start
-                # between attempts, and 3 retries just delays the real error.
+                # between attempts, and retries only delay the real error.
                 raise SearchError(
                     f"cannot reach SearxNG at {self.base_url} — is the instance up? "
                     f"`docker compose up -d searxng`. ({type(error).__name__}: {error})"
@@ -120,7 +155,10 @@ class SearxngClient:
                         f"not retried — a 4xx fails identically on every attempt (`04` §6)."
                     )
                 else:
-                    return _parse_results(response, limit, self.config)
+                    results = self._handle_payload(response, engines, limit, now)
+                    if self.cache is not None:
+                        self.cache.put(query.text, engines, results, now)
+                    return results
 
             if attempt < self.config.max_retries:
                 delay = self._backoff(attempt)
@@ -134,30 +172,43 @@ class SearxngClient:
             f"{last_error}"
         )
 
+    def _handle_payload(
+        self, response: httpx.Response, engines: tuple[str, ...], limit: int, now: float
+    ) -> list[SearchResult]:
+        """Parse, and feed each engine's outcome to the circuit breaker.
 
-def _parse_results(
-    response: httpx.Response, limit: int, config: RetrievalConfig
-) -> list[SearchResult]:
-    """Parse SearxNG's JSON into `SearchResult`s, rank-ordered.
+        Fed here rather than inside the parser because this is where the set
+        of engines actually queried is known — an engine already cooling down
+        must not be recorded as failing again while nobody is asking it.
+        """
+        payload = _payload_of(response)
+        degraded = set(unresponsive_engines(payload))
+        for engine in engines:
+            if engine in degraded:
+                self.breaker.record_failure(engine, now)
+            else:
+                self.breaker.record_success(engine)
 
-    A malformed payload raises rather than yielding an empty list — see
-    `search`'s note on why "no results" and "the backend broke" must stay
-    distinguishable.
+        if degraded and degraded >= set(engines):
+            raise SearchError(
+                f"every queried engine is unresponsive: {sorted(degraded)}. Results from a "
+                f"fully CAPTCHA-blocked instance are not retrieval output and must not be "
+                f"scored. Reduce request rate (`min_interval_s`) or wait out the block."
+            )
+        if degraded:
+            log.warning(
+                "searxng_engines_unresponsive",
+                engines=sorted(degraded),
+                still_answering=sorted(set(engines) - degraded),
+            )
+        return _results_of(payload, limit)
 
-    **`unresponsive_engines` is checked, not ignored.** SearxNG answers HTTP
-    200 with a full-looking `results` list even when its upstreams have
-    CAPTCHA-blocked it, and reports the fact only in this field. Observed
-    live on the first real run of this code:
 
-        unresponsive_engines: [["duckduckgo","CAPTCHA"],
-                               ["google","Suspended: CAPTCHA"]]
+def _payload_of(response: httpx.Response) -> Mapping[str, object]:
+    """SearxNG's JSON body, or a loud error.
 
-    ...while `results` still held 10 entries — from the one surviving engine,
-    and they were junk (`instagram.com` for "curaprox aligner care foam"). A
-    client that ignores this field cannot tell a healthy run from a throttled
-    one, which is `05` §5's "aggregate domain block": every request succeeds,
-    the systemic pattern is invisible, and the recall number it produces
-    measures rate limiting rather than retrieval.
+    A malformed payload raises rather than yielding an empty list — "no
+    results" and "the backend broke" must stay distinguishable (`04` §4).
     """
     try:
         payload = response.json()
@@ -168,27 +219,16 @@ def _parse_results(
             "SearxNG response has no `results` list — check that JSON format is enabled in "
             "`config/searxng/settings.yml` (`search.formats` must include `json`)."
         )
+    return payload
 
-    degraded = unresponsive_engines(payload)
-    if degraded and len(degraded) >= len(config.engines):
-        raise SearchError(
-            f"every configured engine is unresponsive: {degraded}. Results from a fully "
-            f"CAPTCHA-blocked instance are not retrieval output and must not be scored. "
-            f"Wait for the block to lapse, reduce request rate (`min_interval_s`), or "
-            f"configure engines that permit automated queries."
-        )
-    if degraded:
-        # Loud, and named. `05` §5 wants the per-domain success rate in the run
-        # summary; until P8 aggregates it, this at least makes a degraded run
-        # impossible to mistake for a healthy one in the logs.
-        log.warning(
-            "searxng_engines_unresponsive",
-            engines=degraded,
-            healthy=len(config.engines) - len(degraded),
-        )
 
+def _results_of(payload: Mapping[str, object], limit: int) -> list[SearchResult]:
+    """Rank-ordered results. A malformed entry is skipped, not fatal — one bad
+    entry is a bad result, not a broken backend."""
+    raw = payload.get("results")
+    entries = raw if isinstance(raw, list) else []
     results: list[SearchResult] = []
-    for rank, item in enumerate(payload["results"][:limit], start=1):
+    for rank, item in enumerate(entries[:limit], start=1):
         if not isinstance(item, dict):
             continue
         url = item.get("url")

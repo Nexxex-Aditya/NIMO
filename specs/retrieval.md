@@ -72,9 +72,14 @@ gate can be closed honestly. The options, none of which is free:
 - **A long crawl with heavy backoff**, hours rather than minutes, checkpointed
   through the P6a runner's resume path (which exists and works).
 
-Recording it rather than picking: this is a cost/scope decision, and `03` §7's
-"rejected alternatives" does not cover paid APIs because the constraint was
-not known when it was written.
+**Resolved in §5a, and the answer was engineering rather than spend.** A
+measured engine portfolio, a per-engine circuit breaker, early exit on a
+full candidate cap, and a cache-first client take a full `qa` run from
+"blocked within a few dozen queries" to ~42 minutes cold and effectively
+free thereafter. The paid API stays as insurance against all three
+portfolio engines correlating in a block — not as the plan. `03` §7's
+"rejected alternatives" still does not mention paid APIs, and now does not
+need to.
 
 ### 1d. The other blocker, unchanged
 
@@ -218,6 +223,106 @@ every candidate before deciding to fetch it.
   (which strategy produced it) and `engine`, because `03` §4 stage 2 merges
   results across strategies and the provenance is what makes a bad strategy
   visible later.
+
+## 5a. Making free engines work as primary — measured
+
+`03` §4 stage 2 assumes SearxNG can serve candidate generation for 412 rows.
+The first live run showed it cannot, naively: Google and DuckDuckGo
+CAPTCHA-blocked a single IP within a few dozen queries (§1a). A paid search
+API is the obvious escape, and it is the *backup*, not the answer. Four
+engineering changes make the free path work, each measured.
+
+### 5a.1 Engine portfolio, chosen by measurement not reputation
+
+Four real product queries per engine, paced 2s apart so the probe would not
+cause the blocking it was measuring:
+
+| engine | blocked | results/query | relevant |
+|---|---|---|---|
+| **brave** | 0/4 | 20.0 | **95%** |
+| **startpage** | 0/4 | 34.8 | **91%** |
+| **bing** | 0/4 | 10.0 | 25% |
+| mojeek | 0/4 | 0.0 | — (enabled; returns nothing for UK retail) |
+| duckduckgo | **4/4** | — | CAPTCHA |
+| qwant | **4/4** | — | CAPTCHA |
+| google | **4/4** | — | Suspended: CAPTCHA |
+
+Google, DuckDuckGo and Qwant are excluded regardless of their reputation for
+result quality. **An engine that stops answering partway through a 400-row run
+is worse than one that never answered, because the run looks like it worked.**
+Bing earns its place on independence, not relevance. Mojeek was enabled in the
+instance specifically for index diversity and measured at zero results — kept
+in the record rather than silently dropped.
+
+**No single free engine is reliable, and that is the design constraint.** In a
+later probe Brave — the best-scoring engine here — began CAPTCHA-ing after
+about six queries. What kept that run producing candidates was Startpage and
+Bing continuing. Hence a portfolio with a breaker, not a preference list.
+
+### 5a.2 Per-engine circuit breaker
+
+`04` §6 already required one ("N consecutive failures on a domain → stop
+hitting it, record the fact, continue with other domains"); the unit that gets
+blocked is the **engine**. Three consecutive CAPTCHAs opens that engine's
+circuit for 15 minutes while the others carry the run. A success clears the
+streak, so a flaky engine is not confused with a blocked one, and recovery is
+half-open so one failure after a cooldown does not immediately re-open it.
+
+A CAPTCHA is not a transient error — it means "come back later" — so this
+cooldown is minutes, unrelated to the sub-second retry backoff for a flaky
+response. When **every** engine is broken the client raises: "no engine
+answered" and "no results exist" are different facts and only one is about the
+product (`04` §4).
+
+### 5a.3 Early exit once the candidate cap is full
+
+The largest lever on budget. Stop issuing strategies for a row once
+`max_candidates` unique safe candidates are collected — every further strategy
+spends a query on candidates that would be discarded anyway.
+
+Cross-row query deduplication was measured and **deliberately not built**:
+1904 of 1904 `qa` queries are distinct, because S5 is the verbatim description
+and S3 carries per-row variant terms. It would have bought nothing. Measuring
+before building saved that work.
+
+### 5a.4 Cache-first (`04` §6)
+
+Content-addressed by (query + engine set), TTL-bounded because `05` §5 forbids
+an infinite one. A hit issues no request, so it cannot be blocked, rate
+limited, or fail partway. The engine set is part of the key deliberately: the
+same query against `[brave, startpage]` and `[bing]` are different questions,
+and serving one for the other would make a degraded run look like a healthy
+cached one.
+
+### 5a.5 What it adds up to — measured on 12 real `qa` rows
+
+    strategy calls made : 37   (naive, all strategies: 51)
+    candidates collected: 240  = 20.0/row — the cap filled on EVERY row
+    cold wall time      : 72.4s
+    warm wall time      : 5.3s (7%), byte-identical candidates
+    engines broken      : brave x1, and the run continued on the other two
+
+Full 412-row `qa` projection: **~1270 queries, ~42 minutes cold, then
+effectively free.** The saving is short of the ideal because Brave dropped out
+partway and fewer results per query means more strategies are needed to fill
+the cap — the portfolio and early exit interacting as designed.
+
+**42 minutes for a run that completes, caches and resumes is the answer.** The
+second run costs 7% of the first, so iterating on the matcher and running the
+demo are both effectively free.
+
+### 5a.6 The paid API is the backup, and the seam is already there
+
+`merge_candidates` takes a `SearchFn` — `(SearchQuery, int) -> list[
+SearchResult]` — so a paid backend is a new implementation of that callable
+plus a key in `.env`, not a change to query construction, canonicalization,
+merging or the cap.
+
+**No paid backend is implemented, deliberately.** There is no key to test
+against, `04` §6 forbids network in tests, and a client written against
+documentation rather than a live endpoint is precisely the class of
+fabricated-but-plausible code that produced the invented Docker tag earlier in
+this project. `config/retrieval.yaml` records the four steps to add one.
 
 ## 6. Merging and the candidate cap
 
