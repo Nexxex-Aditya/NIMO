@@ -541,6 +541,66 @@ bumped to 0.6. `src/nimo/contracts.py`. `tests/test_contracts.py` fixtures.
 Consumed by `specs/normalize.md` (P3) and the block key in P6.
 **Status:** standing
 
+## 2026-09-10 — P3 normalizer designed from measurement; three defects caught during implementation
+**Decision:** `specs/normalize.md` written (first spec authored
+this side, per the shared-authority change) and implemented. Four design
+choices worth recording, each grounded in a measurement over all 824 real
+`dev`+`qa` rows rather than the three illustrative strings in `03` §4:
+
+1. **Retailer-suffix stripping is data-driven, not a hardcoded list.**
+   Measured: **824 of 824 rows** end in at least one token that also appears
+   in that same row's `RETAILER` value. So the rule pops trailing tokens while
+   they belong to *this row's own* retailer. A static 50-entry junk list was
+   rejected: it rots when a retailer is added, and it cannot distinguish
+   `boots` as junk on a Boots row from `boots` as content elsewhere. The
+   data-driven form is self-limiting by construction.
+2. **`variant_terms` is derived, not curated.** There are 1725 distinct
+   residual tokens; a hand-maintained variant vocabulary would silently drop
+   whatever nobody thought of, and `03` §4 stage 4 scores *variant overlap*,
+   so a missing term is a quietly weakened feature rather than a visible
+   error. Only `format_hints` is a curated closed set, because it is small,
+   genuinely closed, and feeds `MatchFeatures.format_consistent`.
+3. **Count parsing needs explicit precedence.** 53 of 824 rows match more than
+   one count pattern. `pack of N` is the dominant form (122 rows), not
+   `N pack` (26). `N count` ranks **last** because it is Amazon listing
+   boilerplate — `"1 count (pack of 4)"` means four, and taking `1 count`
+   first would silently report a 4-pack as a single.
+4. **`free` and `extra` are not junk**, despite sitting in the same frequency
+   band as the real unit-of-sale codes (43 and 31 rows). They carry
+   `alcohol free`, `fluoride-free`, `extra soft` — exactly the variant signal
+   stage 4 scores on.
+
+**Why this entry matters beyond the design: three defects were found by
+measuring, after the spec was written and while implementing it.** All three
+would have produced plausible wrong output with no exception:
+
+- **`N x` fired on marketing claims.** Enumerating all 11 real `N x`
+  occurrences showed 3 are comparatives, not multipacks: `"3x more
+  effective"`, `"4x more effective"`, `"2x stronger enamel defence"`. Since
+  rule 1 ranks first, `"2x stronger enamel"` became a 2-pack — a wrong hard
+  identity attribute (`03` §4 calls multipack count exactly that). Fixed with
+  a claim-word guard keyed off the *following* word, since the 8 genuine ones
+  are followed by a size or a product noun. All 3 now fall through correctly.
+- **The tokenizer was ASCII-only.** `nûby` split into `n` + `by`, so that
+  row's variant terms contained the meaningless `by` and lost the brand
+  token. 23 rows carry legitimate non-ASCII (`pärla`, `antibactérien`),
+  i.e. the same rows `01` §13's encoding work exists to protect — repaired at
+  load and then mangled at normalize would have been a silent regression of
+  an already-fixed defect. Tokenizing on `\w` fixes it.
+- **`"listerine coolmint 500 millilitres"` parsed to no size.** Spelled-out
+  unit forms were missing. Adding them took sized rows from 440 to 445.
+
+Also worth flagging for review: an editing mistake of mine wrote literal
+backspace bytes into `parse.py`'s regexes (a non-raw Python string in a patch
+script turned `\b` into `0x08`), silently breaking every word boundary in the
+count patterns. Caught by inspecting the file bytes, not by any test — the
+patterns still compiled and still matched, just more loosely. The file was
+rewritten wholesale and `src/` is now verified free of control bytes.
+**Affects:** new `specs/normalize.md`, new `config/normalize.yaml`, new
+`src/nimo/normalize/` (`parse.py`, `vocab.py`, `normalizer.py`), new
+`tests/normalize/`. `04` §1 P3 row → done.
+**Status:** standing
+
 ---
 
 # Open questions — resolve with organizers

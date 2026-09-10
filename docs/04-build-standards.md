@@ -25,7 +25,7 @@ phase's final code. Values: `not started` | `in progress` | `done`.
 | P0 | Scaffold | Repo layout, deps, config, logging, CI | `make check` green on empty repo | done |
 | P1 | Contracts | `contracts.py` — every model in `03` §3, no logic | Models instantiate; round-trip to JSON | done |
 | P2 | Loader | Dataset ingest, all 7 acceptance criteria in `01` §10 | Corruption counts match `01` §3 exactly | done |
-| P3 | Normalizer | `RETAILER_DESC` → `DescTokens` | 30 hand-written cases from real dev rows pass | not started |
+| P3 | Normalizer | `RETAILER_DESC` → `DescTokens` | 30 hand-written cases from real dev rows pass | done |
 | P4 | **Gold set** | ~50 hand-labelled URLs, stratified by module | Committed as `data/gold/urls.jsonl` | not started |
 | P5 | Module baseline | Text-only module classifier, no URL | Per-module stratified accuracy reported | not started |
 | P6 | **Registry & blocking** | `CanonicalEntity` store, exact-key blocking, Union-Find merge | Tier-1 fingerprint recall on the 40 dev/qa `ITEM_CODE` overlap rows — **not** Tier-0; barcode corruption hits this exact set too, Tier-0 provably cannot fire here (`01` §3, §9, `03` §1a) | not started |
