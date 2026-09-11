@@ -9,24 +9,30 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P9 (matcher) — NOT STARTED
-Last completed milestone: P8 (fetch + extract), gate met.
-Next milestone: P9. **No spec file exists yet** — write `specs/match.md` first.
-Gate (`04` §1): Precision@1 on the gold set. Authority: `03` §4 stage `[4]`,
-which `04` §13 flags as HARD-20% — it is the core algorithmic component.
+Phase: P10 (calibration + abstention) — NOT STARTED
+Last completed milestone: P9 (matcher), gate met with its limits stated.
+Next milestone: P10. **No spec file exists yet** — write `specs/calibrate.md`
+first. Gate (`04` §1): calibration curve reported. Authority: `03` §4 stage
+`[4]` (Calibration, Abstention), `04` §13 HARD-20%.
 
-**P8's measurements change P9's design before it starts:**
-- **JSON-LD Product on only 3 of 10 real pages.** `03` §4 stage 4's GTIN hard
-  rule is right but fires on ~30% of pages, not near-universally. The weighted
-  features carry most rows.
-- **Amazon publishes neither JSON-LD nor OpenGraph** — body text only, on the
-  largest retailer in the dataset.
-- **4 of 10 pages are bot walls or JS shells.** `CandidateEvidence` with a
-  failure `fetch_status` is a main path; P9 must rank a candidate list where
-  several entries have no evidence at all.
-- **chemist-4-u and pharmazondirect both report GTIN 5011309895612** for one
-  product whose gold label names a third retailer — the evidence for scoring
-  the PRODUCT rather than the URL string.
+**P10 starts with a hard fact: the instrument is 5 URLs.** An isotonic or
+Platt fit on five points is not a calibration curve. `specs/match.md` §1a has
+the end-to-end numbers (URL@1 = 1/5, unstable between runs). P10 must either
+find a bigger instrument (product-level agreement via GTIN; more gold rows) or
+say plainly that calibration cannot be fitted yet — not invent one.
+
+**P9 left three things for P10 to consider, all recorded, none acted on:**
+- `calibrated_prob` mirrors `raw_score`;
+  `test_calibrated_prob_mirrors_raw_score_until_p10` must be broken ON PURPOSE.
+- A page's own GTIN contributes nothing when the query barcode is corrupt
+  (394/412 dev rows). savers outranked chemist-4-u on `dev:410` for exactly
+  this reason. One row is not grounds to change a HARD-20% scoring function.
+- Write-back is GTIN-accept-only. The `calibrated_prob >= tau_merge` trigger
+  waits for a real calibration.
+
+**For the runner (P6a wiring of P7→P8→P9): `CandidateEvidence.url` MUST be the
+canonical candidate URL**, never the fetcher's post-redirect `final_url`. The
+first gate run reported 0/5 on exactly that mismatch (`www.`).
 
 ## Carried-forward work, explicitly not done
 
@@ -54,11 +60,11 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (537 passed)
+  uv run pytest                          -> EXIT 0  (562 passed)
 
 ## Do NOT re-do
 
-- P0–P6a: done; P7 built with its gate open (see above), gates verified by execution, committed.
+- P0–P9: done (P7's recall gate open, stated), gates verified by execution, committed.
 - **Row identity is `row_uid` (`"dev:0"`), never `NAN_KEY`/`ITEM_CODE`.**
   `01` §14: all three columns carry the same rounding corruption. Never key
   an artifact, a cache entry, a registry member or a gold label on
@@ -93,6 +99,14 @@ this machine; ran its four commands directly per `04` §11:
   barcodes, not all 35. The other 17 are 6-7 digits and are not GTINs.
 - **P7: unknown query parameters are KEPT.** Only tracking/session ones are
   stripped. Dropping `?variant=` would merge a 75ml and a 100ml listing.
+- **P9: zero of the six gold rows have a usable GTIN.** The GTIN hard rule
+  cannot be measured by Precision@1 on the gold set; the five adversarial
+  tests `04` §8 names are the gate for it. Don't try to "fix" the gold set
+  by inventing barcodes.
+- **P9: `calibrated_prob == raw_score` is asserted by a test that P10 must
+  break deliberately.** Don't update the test to pass — that is the point.
+- **P9: write-back fires on GTIN accept ONLY.** A high text score never
+  writes to the registry until a real calibration exists.
 - **P6a: the runner is the only `except Exception` in `src/`**, paired with a
   typed `RowFailure`, and `test_only_one_broad_except_exists_in_src` pins it.
   If that test fails, the fix is to remove the new broad except, not to add a

@@ -1,0 +1,84 @@
+# P9 matcher — specs/match.md §4.
+#
+# `04` §9: zero magic numbers in code. Every weight below is a named config
+# value rather than a literal in a scoring function.
+#
+# ****** THESE WEIGHTS ARE NOT TUNED. ******
+#
+# `03` §4 stage 4 says thresholds are tuned against the gold set, not
+# hand-picked — and the gold set is 5 URLs, of which ZERO have a usable GTIN
+# (`specs/match.md` §1). Fitting weights against five points would produce
+# numbers that look measured and are not, which is the exact failure this
+# project has caught three times already.
+#
+# So they are set from the ORDERING of evidence strength that `03` §4 stage 4
+# states, and marked untuned. P10 tunes them when there is something to tune
+# against. Anyone reading a score before then should read it as a ranking, not
+# as a quantity.
+
+weights:
+  # Brand is the strongest non-GTIN signal: a page for a different brand is a
+  # different product regardless of how well the rest matches.
+  brand_match: 0.35
+
+  # What discriminates INSIDE a brand+size block — the same role variant terms
+  # play for the registry's Tier 1 (`03` §1a), where they were measured to be
+  # the only thing separating Aquafresh Extra Care from Intense Clean.
+  variant_overlap: 0.30
+
+  # "pump", "spray", "tablets" — a real identity attribute, but coarser than
+  # variant terms and absent on 160 of 412 dev rows.
+  format_consistent: 0.15
+
+  # A boots.com page for a Boots row is corroboration, not proof: the same
+  # product legitimately appears on many retailers, and `01` §5 shows the
+  # organizers' own answer crossing retailer AND market.
+  retailer_domain_match: 0.10
+
+  # SCORED, NEVER A FILTER. `01` §5: the reference answer resolves a FR,GB
+  # item to Amazon.in, so a country hard-filter rejects it. `04` §12 lists a
+  # country hard-filter as a forbidden pattern. [PROVISIONAL - Q4]
+  market_signal: 0.10
+
+# --- Hard-rule penalties (`03` §4 stage 4) ---------------------------------
+#
+# Demotions, not rejections. `03` §4 stage 4: "Size mismatch where both sizes
+# are confidently parsed -> hard demotion, not rejection (retailer pages
+# sometimes list a range)." A demoted candidate can still win when nothing
+# better exists — which matters, because 4 of 10 measured pages are bot walls
+# carrying no evidence at all.
+penalties:
+  size_mismatch: 0.60
+  count_mismatch: 0.60      # multipack count is a HARD identity attribute (`03` §4 stage 0)
+  negative_flag: 0.40       # per flag, capped by the floor below
+
+# A demoted candidate never goes below this, so it stays rankable rather than
+# becoming indistinguishable from a rejected one. Rejection is a separate,
+# explicit outcome — only the conflicting-GTIN rule produces it.
+score_floor: 0.01
+
+# --- Negative flags (`03` §4 stage 4) --------------------------------------
+#
+# Present on the page and absent from the query means the page is probably a
+# different SKU: a refill pack is not the complete pack, a travel size is not
+# the full size. Symmetric by construction — the check is "page has it, query
+# does not", so a query that IS a refill is not penalised for matching one.
+negative_flags:
+  - refill
+  - refills
+  - travel
+  - sample
+  - bundle
+  - gift set
+  - giftset
+  - multipack
+  - value pack
+  - trial
+
+# --- Page-side parsing -----------------------------------------------------
+#
+# How much page text to run P3's parser over. The title carries the product
+# identity; body text on a real page runs to hundreds of KB and is mostly
+# navigation, reviews and cross-sells, which would swamp the variant overlap
+# with unrelated brand names.
+page_text_chars: 300

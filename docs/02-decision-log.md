@@ -1810,6 +1810,104 @@ fetch tests entirely on `MockTransport` with stubbed DNS.
 **Status:** standing
 
 
+## 2026-09-11 — P9 matcher: the gate cannot see the most important rule, so the adversarial set is the gate
+**Decision:** `specs/match.md` written and implemented — `src/nimo/match/`
+with Layer A features, the five hard rules in `03` §4 stage 4's order,
+weighted scoring from `config/match.yaml`, and a registry write-back gated on
+a GTIN hard-rule accept **only**. `04` §13 flags this as HARD-20%; the
+reasoning is spelled out here rather than summarised.
+
+**1. The gate cannot measure the rule that matters, and that is stated in
+the gate row rather than worked around.** Measured before designing: **zero of
+the six gold rows have a usable GTIN** — every one is corrupt. So the GTIN
+hard rule, the single strongest signal in `03` §4 stage 4 and the one that
+carries **all 412 `qa` rows**, cannot be exercised by Precision@1 on the gold
+set at all. This is the dev/qa asymmetry biting for the third time (P6's Tier
+0; P7's S1 at 4% of `dev`; now this). The response is not to weaken the rule:
+`04` §8 already requires the five hand-built adversarial cases — same brand
+different size, different multipack count, refill vs complete, conflicting
+GTIN, no structured data — and says "**these tests *are* that criterion**".
+They need no gold set and they test what the gate cannot. All five pass, each
+as its own named test.
+
+**2. "Both valid" is load-bearing on both GTIN rules.** `01` §3 is a whole
+document about an identifier silently reshaped by a spreadsheet. Comparing a
+rounded `5000000000000` against a real page GTIN would *reject every correct
+candidate for that row*. The query side requires `barcode_valid` **and** `not
+barcode_corrupt`; the page side must be a plausible GTIN length. Either side
+unusable ⇒ `barcode_exact = None` — which is why `03` §3 gave that field three
+states. Tested with a corrupt query barcode, a 6-digit query barcode, and a
+4-digit page GTIN, each of which must yield `None` rather than `False`.
+
+**3. P3's parser runs on the page title too**, so both sides of every
+comparison are in the same shape. A separate page-side parser would drift from
+the query-side one, and then "size mismatch" would sometimes mean "the two
+parsers disagree" — invisible in the output, undebuggable from a score. It
+also means P3's measured fixes (the `N x` claim-word guard, spelled-out units,
+Unicode tokenizing) apply to page text for free.
+
+**4. Demotion, not rejection, for size and count** — `03` §4 stage 4:
+"retailer pages sometimes list a range". A demoted candidate can still win when
+nothing better exists, and with 4 of 10 pages bot-walled that happens. Scores
+are floored so a demoted candidate stays distinguishable from a *rejected*
+one; only the GTIN conflict rejects.
+
+**5. Market is scored, never a filter**, with a test that a cross-market
+candidate can win. `01` §5: the organizers' own `sample_output` resolves a
+`FR,GB` item to Amazon.in. `04` §12 lists a country hard-filter as forbidden.
+
+**6. `calibrated_prob` mirrors `raw_score` and a test forces P10 to break
+that on purpose.** A field named `calibrated_prob` holding an uncalibrated
+number is the plausible-wrong-value shape `05` §5 names. Asserting equality
+makes the divergence a deliberate act at P10 rather than something that
+quietly happens. No abstention at P9 for the same reason: `03` §4 stage 4
+gates it on a calibrated threshold that does not exist yet.
+
+**7. Write-back fires on a GTIN accept only.** `03` §4 stage 4 offers two
+triggers — GTIN accept *or* `calibrated_prob ≥ τ_merge` — and the second does
+not exist. Writing back on an uncalibrated score would put merges into the
+registry that no later lookup can distinguish from confirmed ones; `03` §1a
+calls a wrong merge worse than a wrong single-row answer, and P6 measured why
+(no similarity separates same from different on this data). A test asserts
+that a perfect text match with no GTIN is refused, with the reason recorded.
+
+**8. Weights are in config and explicitly untuned.** Five weights summing to
+1.0 (asserted at load), set from `03` §4 stage 4's stated ordering of evidence
+strength. Fitting them against five gold URLs would produce numbers that look
+measured and are not — the failure this project has caught three times. A
+test greps the scoring functions for numeric literals.
+
+**9. The live end-to-end run, and what it actually showed.** Five gold rows,
+twice, through the real stack: **URL@1 = 1/5** (`dev:37`, both runs) and
+**PRODUCT@1 = 0/5** (most pages carry no GTIN to agree on). n=5, stated. Four
+findings from it are worth more than the number:
+
+- **Results are not stable between runs.** Brave circuit-broke in run 1; run 2
+  had it back, so the engine set — part of the cache key by design — differed,
+  the cache missed, and the candidates changed. `dev:410` went from a ranked
+  list to zero candidates. The cache makes warm re-runs identical; it cannot
+  make runs that span a breaker event identical. A property of live free
+  search, now visible in a score.
+- **The URL metric is blind to `dev:92`.** Three retailers sell the same
+  Curaprox foam; the matcher ranked a valid one first both times and the metric
+  called it wrong both times. `specs/match.md` §1a.
+- **A page's own GTIN is worth nothing when the query has none.** `dev:410`:
+  savers (no structured data) outranked chemist-4-u (JSON-LD GTIN) because the
+  corrupt query barcode makes `barcode_exact` `None`. A page that publishes a
+  GTIN is at least a real product page rather than a listing. **Not changed** —
+  one row is not grounds for altering a HARD-20% scoring function — recorded
+  for P10 to consider with a bigger instrument.
+- **`CandidateEvidence.url` must be the canonical candidate URL.** The first
+  gate run reported 0/5 because evidence carried the fetcher's `final_url`
+  (with `www.`) while gold was canonical (without). A script bug this time —
+  but the runner wires P7→P8→P9 next and must carry the canonical URL as
+  identity, or every downstream comparison breaks the same way.
+**Affects:** new `specs/match.md`, new `config/match.yaml`, new
+`src/nimo/match/` (`config.py`, `features.py`, `score.py`, `writeback.py`),
+new `tests/match/`. `04-build-standards.md` §1 P9 row. No contract changes.
+**Status:** standing — HARD-20%; flagged for careful review at the end.
+
+
 ---
 
 # Open questions — resolve with organizers
