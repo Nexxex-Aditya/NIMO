@@ -94,6 +94,12 @@ def load_qa_header(workbook_path: Path) -> list[str]:
     return header
 
 
+def read_external_codes(workbook_path: Path, sheet: str, expected_rows: int) -> list[str | None]:
+    """Public form of `_read_external_codes` for the assembler (P14), which
+    must write EXTERNAL_CODE back as the same text the loader read."""
+    return _read_external_codes(workbook_path, sheet, expected_rows)
+
+
 def _read_external_codes(workbook_path: Path, sheet: str, expected_rows: int) -> list[str | None]:
     """`EXTERNAL_CODE` via openpyxl, branching on raw cell type.
 

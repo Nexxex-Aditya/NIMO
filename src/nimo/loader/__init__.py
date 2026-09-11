@@ -13,6 +13,7 @@ from nimo.loader.dataset import (
     load_module_labels,
     load_qa_header,
     load_rows,
+    read_external_codes,
     read_header,
 )
 from nimo.loader.errors import (
@@ -46,6 +47,7 @@ __all__ = [
     "load_module_labels",
     "load_qa_header",
     "load_rows",
+    "read_external_codes",
     "normalize_characteristic_name",
     "parse_barcode",
     "parse_brand",

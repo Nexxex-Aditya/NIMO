@@ -2436,6 +2436,57 @@ that.
 network is involved, so nothing is deferred to the office laptop).
 
 
+## 2026-09-11 — P14 assembly: passthrough is the workbook's bytes, a failed row is blank, and byte-identity took two rounds of pinning
+**Decision:** `specs/assemble.md` written; `src/nimo/assemble/` built —
+`assemble_rows` over the eight artifact trees, `write_csv`, `write_xlsx`,
+a report, `--sheet/--out-dir/--artifacts` CLI. `config/output.yaml` carries
+the `[PROVISIONAL — Q2]` `product_url_field` switch. Gate met: both files
+byte-identical on re-run, measured.
+**Why, and what was decided inside it:**
+
+**1. Passthrough columns come from the workbook, not from `RawRow`.**
+`RawRow.brand_raw` and `desc_raw` are encoding-repaired and whitespace-
+collapsed (`01` §13, `01` §10 #6) — right for the pipeline, wrong for a
+submission, which must carry the organizers' bytes. So the seven input
+columns are re-read with `dtype=str`, `EXTERNAL_CODE` through the loader's
+cell-type-aware reader (now public as `read_external_codes`), and a test
+asserts the three mojibake `JASÃƒâ€“N` brands survive unrepaired in the
+output. `NAN_KEY`/`ITEM_CODE` are checked against the artifact's copy so a
+misfiled artifact cannot attach one product's answer to another row.
+
+**2. A failed row is blank in every output column.** `04` §4: "half-filled
+rows in the submission are worse than blanks." The report names each blank
+row with the stage it failed at, read from `failures.jsonl`.
+
+**3. Validation on assembly is belt and braces, and a violation raises.**
+MODULE in the 59-set; every non-empty characteristic applicable to that
+module and, for a closed one, valid per `&` component through P12's own
+validator; the header equal to the live `qa` header; identifier columns as
+text. The artifacts should never violate — so a violation is drift, and
+drift must not become a submission (`04` §4).
+
+**4. Byte-identity was measured, and it took two rounds.** With
+`workbook.properties.created/modified` pinned, two writes still differed at
+byte 11: the zip local-header timestamp openpyxl fills from the wall clock.
+After re-zipping every entry with a fixed `date_time`, they still differed
+inside `docProps/core.xml`: `save()` re-stamps `<dcterms:modified>`
+regardless of the property set. Both are now rewritten in a deterministic
+repack, and the test compares bytes. Had this been assumed from the pinned
+properties alone, `04` §5's CI test would have failed on the first re-run.
+
+**5. `EXTERNAL_CODE`, `NAN_KEY` and `ITEM_CODE` are written as text cells
+(`@`)**, and a test reads them back through openpyxl (`data_type == "s"`).
+`01` §3 is a whole document about what Excel's numeric formatting did to
+these columns; the one thing this project must not do is do it again on
+the way out (`05` §5).
+
+**Affects:** new `specs/assemble.md`, new `config/output.yaml`, new
+`src/nimo/assemble/` (`assemble.py`, `__main__.py`), new `tests/assemble/`
+(13). `src/nimo/loader/dataset.py` and `__init__.py`
+(`read_external_codes`). `04-build-standards.md` §1 P14 row.
+**Status:** standing — gate met.
+
+
 ---
 
 # Open questions — resolve with organizers

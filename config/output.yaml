@@ -1,0 +1,17 @@
+# P14 assembly — specs/assemble.md.
+#
+# [PROVISIONAL — Q2] `01` §5: `sample_output`'s PRODUCT_URL column holds page
+# TITLES, not URLs. Until the organizers answer, the real URL is emitted and
+# the title stays in the run's match/ artifacts and trace. Flip to `title`
+# if Q2 resolves that way — a config value, not a module (`04` §13).
+#   url   -> Selection.url
+#   title -> Selection.page_title
+product_url_field: url
+
+# The sheet name inside submission_<sheet>.xlsx. The organizers' evaluation
+# sheet is `qa`; keeping the name makes the file drop-in comparable.
+xlsx_sheet_name_from_source: true
+
+# Workbook properties are pinned to this instant so the xlsx is byte-identical
+# on re-run (`04` §5). openpyxl stamps the current time otherwise.
+fixed_timestamp: "2026-09-11T00:00:00Z"
