@@ -2610,6 +2610,41 @@ anywhere. No fixture would have found this; reading one real prompt did.
 **Status:** standing.
 
 
+## 2026-09-11 — The full `qa` run on free engines: 412 rows, 107 minutes, no blocks — and what it measured
+**Decision:** The 2026-09-11 morning entry's projection ("~6x rows per
+window") is replaced by measurement, and the "paid search API is required"
+conclusion from the P10 entry is withdrawn. Numbers recorded in `04` §1
+(P7, P10) and Q6.
+**What the run measured:**
+
+- **412/412 rows succeeded, 0 failed, 6448 s wall (107 min), ~3.8 rows/min
+  sustained, zero cooldown waits.** `google cse` circuit-broke 7 times and
+  `brave` 7 times over the run; DuckDuckGo carried those windows and the
+  breaker's half-open recovery brought the others back each time. This is
+  the "8 rows per cooldown window" number, replaced — and the
+  re-engineering behind it (early exit at the fetch budget, rotation with
+  next-on-empty, wait-for-cooldown, S1 last) was the whole difference: the
+  engines were the same.
+- **111 registry entities from 412 rows (26.9%) — a GTIN-confirmed page was
+  fetched and ranked first.** Was 1 row in 8 with S1 first; S2 (barcode +
+  brand) finds the retailers that publish JSON-LD.
+- **Product-level retrieval, the replacement for P7's unmeasurable gold
+  gate:** 154 rows fetched at least one page that publishes a GTIN; in 111
+  of those (72%) the right product was among them. The instrument's ceiling
+  is JSON-LD availability (30% of retailer pages, `specs/fetch.md` §1) —
+  the other 258 rows may well have had the right page fetched with no
+  identifier to prove it.
+- **149 hosts served bot walls.** The retailer-side half of Q6 is real and
+  is the half the organizers can answer; the search-side half is closed.
+- **Calibration: 236 labelled pairs, held-out ECE 0.068** (5-fold grouped by
+  row). The in-sample number is 0 by construction and is now labelled so.
+  The fit also exposed a PAV defect — tied scores were not pooled — fixed
+  and pinned by a test that every block's value equals its members' rate.
+
+**Status:** standing — supersedes the projection in "No paid search key
+exists…" and the "paid API required" conclusion in the P10 entry.
+
+
 ---
 
 # Open questions — resolve with organizers
@@ -2621,7 +2656,7 @@ anywhere. No fixture would have found this; reading one real prompt did.
 | Q3 | No URL ground truth exists in `dev`. How is URL selection (stage 4) scored? | High — cannot optimize what we cannot measure | open |
 | Q4 | `sample_output` shows an Amazon.in page as the answer for a `FR,GB` item. Is cross-market resolution acceptable? | Medium — determines whether market is a filter or a feature | open |
 | Q5 | `sample_output` carries `GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT`, absent from `dev`/`qa`. Required in submission? | Medium | open |
-| Q6 | Is scraping retailer sites permitted, and are there rate/robots constraints for the demo? **Now load-bearing, and the constraint is on the search side, not the retailer side.** Measured 2026-09-11: a self-hosted SearxNG was CAPTCHA-blocked by Google and DuckDuckGo after a few dozen queries from one IP. 412 rows x 3-5 strategies is 1200-2000 queries, which no free engine will serve. **Measured 2026-09-11 with the full pipeline: 8 rows per cooldown window before all three free engines block (~13 hours for 412 rows, if blocks lift on schedule). Free engines serve the 10-row demo and development; a paid search API would be required for a full `qa` run in a working day — and NO PAID KEY EXISTS (confirmed 2026-09-11), so the free portfolio was re-engineered for an unattended run instead: engine rotation, early exit at the fetch budget, wait-for-cooldown (`specs/retrieval.md` §5a.7). Rows per window is being measured from the full run.** Separately, P4 already found Tesco serving a bot interstitial to a browser, so the retailer side is real too. | **High — blocks P7's gate and caps the demo** | open |
+| Q6 | Is scraping retailer sites permitted, and are there rate/robots constraints for the demo? **Now load-bearing, and the constraint is on the search side, not the retailer side.** Measured 2026-09-11: a self-hosted SearxNG was CAPTCHA-blocked by Google and DuckDuckGo after a few dozen queries from one IP. 412 rows x 3-5 strategies is 1200-2000 queries, which no free engine will serve. **Measured 2026-09-11 with the full pipeline: 8 rows per cooldown window before all three free engines block (~13 hours for 412 rows, if blocks lift on schedule). NO PAID KEY EXISTS (confirmed 2026-09-11), so the free portfolio was re-engineered for an unattended run: engine rotation, early exit at the fetch budget, wait-for-cooldown (`specs/retrieval.md` §5a.7). MEASURED, same day: the full 412-row `qa` run completed on free engines in 107 minutes with 0 failures and 0 cooldown waits. The search-side constraint is solved by engineering; the retailer-side one is real (149 hosts served bot walls) and is what the organizers should be asked about.** Separately, P4 already found Tesco serving a bot interstitial to a browser, so the retailer side is real too. | **High — blocks P7's gate and caps the demo** | open |
 | Q7 | Which LLM is provided, with what context window and rate limit? Multimodal available for image evidence? | High — image comparison is an explicit requirement | **partially resolved 2026-09-10** — CIS LLM, model `hack-fest-gpt-5.6-luna`, `azure-ai-inference` SDK, api_version `2025-03-01-preview`; key in gitignored `.env`. **New constraint found by probing: the endpoint is internal-only** — it resolves to `10.249.224.116` (RFC1918) and TCP 443 times out off-network, so it needs the NIQ VPN. Context window, rate limit and multimodal support are still unstated — re-ask, and confirm connectivity on-network before P11/P12 execute. |
 | Q8 | `dev` row with module `TOOTH CLEANING - GUM/TABLETS (NATURAL TEETH)` has `GLOBAL_PACKAGING_MATERIAL = 'GLASS'`, but that module's allowed values are `['CARDBOARD', 'PAPER', 'PLASTIC']` — no `GLASS`. Confirmed organizer data error, not a parsing issue on our side. Is a corrected value available? | Low — 1 of 412 rows, but worth flagging | open |
 | Q9 | `dev.BRAND` contains a double-encoded-UTF-8 mojibake value (`'JASÃƒâ€“N'`, 3 rows, presumably `JASÖN`); several `RETAILER_DESC` rows in both `dev`/`qa` are similarly corrupted. Can corrected-encoding sheets be provided, or should we repair on load? | Medium — degrades retrieval query quality for affected rows | open |

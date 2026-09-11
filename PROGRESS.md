@@ -19,24 +19,18 @@ laptop: `specs/adjudicate.md` §8 and `specs/characteristics.md` §6 — the
 two model-dependent gates — after a first live call verifies
 `src/nimo/llm/azure.py`.
 
-**THE NUMBER THAT MATTERS FOR PLANNING:** the full pipeline works end to end
-(registry write-backs are firing at ~1 in 4 rows on the running harvest). **No paid search key
-exists** — confirmed by the user 2026-09-11 — so the free portfolio carries
-the submission run, unattended. It was re-engineered for that on measurement
-(`specs/retrieval.md` §5a.7, decision log 2026-09-11): early exit at the
-fetch budget (S3/S5 had produced 86 candidates and 0 were fetched), one
-engine per query with next-on-empty, wait-for-cooldown bounded by
-`max_cooldown_waits`, and S1 (bare barcode) moved last because S2 dominates
-it. Before that: 8 rows per cooldown window. After: a projection of ~6x,
-**not yet measured** — the trace of the full `qa` run replaces it. Run it
-with `uv run python -m nimo.run --sheet qa --live --run-id qa-harvest-2`;
-it resumes, and every registry merge is persisted as it happens.
+**THE NUMBER THAT MATTERS FOR PLANNING — MEASURED 2026-09-11:** the full
+412-row `qa` run completed on free engines in **107 minutes, 0 failures, 0
+cooldown waits**, writing **111 registry entities** (GTIN-confirmed pages).
+No paid search key exists and none is needed for a submission run. Re-run
+cost is cache-bound. 149 retailer hosts serve bot walls — that half of Q6 is
+for the organizers.
 
-**P10 state:** a curve IS fitted and committed (`data/calibration/curve.json`,
-interim: 93 pairs, ECE 0.051) and `--live` loads it, so `calibrated_prob`
-follows it. Abstention is OFF (`tau_abstain: 0.0`, wired, `[PROVISIONAL —
-Q3]`). **Refit after the full qa harvest:** `uv run python -m nimo.calibrate`
-(offline, reproducible), then commit `data/calibration/`.
+**P10 state:** curve fitted on the full harvest and committed
+(`data/calibration/curve.json`: 236 pairs, **held-out ECE 0.068**; in-sample
+ECE is 0 by construction and labelled so). `--live` loads it. Abstention is
+OFF (`tau_abstain: 0.0`, wired, `[PROVISIONAL — Q3]`); the trade-off table
+in `python -m nimo.calibrate` is what turning it on buys.
 
 ## Carried-forward work, explicitly not done
 
@@ -64,7 +58,7 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (735 passed)
+  uv run pytest                          -> EXIT 0  (738 passed)
 
 ## Do NOT re-do
 
