@@ -85,14 +85,28 @@ def identity_sentence(
     selection: Selection,
     evidence: CandidateEvidence | None,
     config: ReasonConfig,
+    *,
+    re_examined: bool = False,
 ) -> Sentence:
-    """How the URL was chosen — one of the five shapes in `specs/reason.md` §2."""
+    """How the URL was chosen — one of the six shapes in `specs/reason.md` §2.
+
+    `re_examined`: a hit on an entity that had no stored values, in a run
+    that extracts them — the entity's own page was fetched and read again.
+    Saying "without re-examination" there would be the fabrication `03` §4
+    stage 7 forbids, in the other direction."""
     if registry.hit:
         if registry.tier == "tier0_exact":
             how, claim = "exact barcode match", "registry.tier0_exact"
         else:
             similarity = f" (similarity {registry.similarity:.2f})" if registry.similarity else ""
             how, claim = f"near-duplicate identity match{similarity}", "registry.tier1_ann"
+        if re_examined:
+            return Sentence(
+                f"Identity confirmed by {how} to a previously resolved item; that record had "
+                f"no coded characteristics, so its page was read again to code them.",
+                (claim, "registry.re_examined"),
+                priority=100,
+            )
         return Sentence(
             f"Identity confirmed by {how} to a previously resolved item; the page and its "
             f"characteristics are carried from that record without re-examination.",
@@ -283,12 +297,15 @@ def compose(
 ) -> Reasoning:
     """The REASONING cell and its provenance. Deterministic (`04` §5)."""
     selected = next((item for item in evidence if item.url == selection.url), None)
+    # The hit-then-extract path (`specs/characteristics.md` §5): values are
+    # model-sourced on a hit only when the entity's page was read this run.
+    re_examined = registry.hit and values.source == "llm"
     sentences: list[Sentence] = [
-        identity_sentence(query, registry, selection, selected, config),
+        identity_sentence(query, registry, selection, selected, config, re_examined=re_examined),
         module_sentence(prediction, config),
         *characteristics_sentences(values),
     ]
-    page = evidence_sentence(selected if not registry.hit else None)
+    page = evidence_sentence(selected if (not registry.hit or re_examined) else None)
     if page is not None:
         sentences.append(page)
 

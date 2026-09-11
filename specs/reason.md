@@ -65,6 +65,10 @@ sentence is one clause of provenance; nothing is inferred across fields.
      previously resolved item" (`tier0_exact`), or "…by near-duplicate
      identity match (similarity 0.87)" (`tier1_ann`), "; page and
      characteristics carried from that record without re-examination" —
+     or, when the hit found an entity with no coded values and this run
+     extracted them from its page (`specs/characteristics.md` §5), "that
+     record had no coded characteristics, so its page was read again to
+     code them", with the page-evidence sentence then included —
      `03` §4 stage 7's last paragraph, verbatim in spirit;
    - GTIN accept: "The selected page (`host`) publishes EAN `n`, equal to
      the record's barcode — a decisive identity match";

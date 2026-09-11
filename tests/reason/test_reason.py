@@ -208,6 +208,38 @@ def test_registry_hit_says_so_and_cites_no_page_features() -> None:
     assert reasoning.claims[:2] == ["registry.tier0_exact", "module.registry"]
 
 
+def test_a_hit_whose_values_were_extracted_this_run_says_the_page_was_read_again() -> None:
+    """The 111 rows of 2026-09-12: a hit on an entity with a module and no
+    values now fetches the entity's page and codes from it. The reasoning
+    must say that — "without re-examination" would be false."""
+    hit = RegistryLookupResult(hit=True, tier="tier0_exact", entity=None, similarity=None)
+    entity_page = page(url="https://boots.com/p", gtin="5014697056627", body="tube 75ml")
+    selection = Selection(
+        url="https://boots.com/p",
+        page_title="p",
+        confidence=1.0,
+        runner_up_gap=0.0,
+        features=None,
+        adjudicated_by_llm=False,
+        resolution_tier="tier0_exact",
+        adjudication=None,
+    )
+    reasoning = compose(
+        query(),
+        hit,
+        selection,
+        prediction(source="registry"),
+        values(source="llm", GLOBAL_PACKAGING="TUBE"),
+        [entity_page],
+        CONFIG,
+    )
+    assert "its page was read again to code them" in reasoning.text
+    assert "without re-examination" not in reasoning.text
+    assert "Page evidence used:" in reasoning.text  # the page WAS examined, so it is cited
+    assert "GLOBAL_PACKAGING = TUBE" in reasoning.text
+    assert reasoning.claims[:2] == ["registry.tier0_exact", "registry.re_examined"]
+
+
 def test_tier3_quotes_the_rationale_attributed() -> None:
     subject = query()
     selection, pages = selected(

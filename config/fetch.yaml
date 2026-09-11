@@ -55,7 +55,12 @@ cache_enabled: true
 
 # `05` §5 forbids an infinite TTL: "a retailer updates a listing; the
 # content-addressed cache keeps serving the old page forever".
-cache_ttl_days: 7
+# Was 7. Raised 2026-09-12: the office network cannot fetch retail pages
+# (94% of fetches fail there), so the office run depends entirely on pages
+# fetched at home, and a 7-day TTL would have voided the whole bundle if
+# the trip slipped a week. 30 days is still finite and still re-fetches;
+# the home machine refreshes the cache before any later trip.
+cache_ttl_days: 30
 
 # Failures are cached too, and shorter. Re-requesting a known 403 bot wall on
 # every run is pure rudeness for an answer we already have — but a block may
