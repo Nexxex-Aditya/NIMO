@@ -43,5 +43,20 @@ tau_ann: 0.75
 # gold set once calibrated_prob exists; until then, strict beats plausible.
 tau_merge: 0.95
 
-tau_abstain: 0.0          # TODO tune at P10 — see [PROVISIONAL - Q3]
+# --- P10: abstention and the calibration fit ------------------------------
+#
+# tau_abstain applies to the CALIBRATED probability only, never to raw_score.
+# 0.0 = abstention OFF, which is the honest state until a curve is fitted:
+# thresholding an uncalibrated number is thresholding noise. Once a curve
+# exists this becomes the probability at which being right and being wrong
+# are equally likely (0.5) - the only threshold with a defensible meaning
+# while Q3 (how is a wrong URL scored vs a blank?) is open. [PROVISIONAL - Q3]
+tau_abstain: 0.0
+
+# Below this many labelled (score, correct) pairs, fit_isotonic REFUSES and
+# calibrated_prob keeps mirroring raw_score. 30 is the smallest n at which
+# ten reliability bins can each hold a few points; it is a floor for honesty,
+# not a target. The instrument is the GTIN hard rule on qa rows
+# (specs/calibrate.md section 1), and its yield per harvested row is low.
+min_labelled_pairs: 30
 runner_up_gap_threshold: 0.0   # TODO tune at P9/P11

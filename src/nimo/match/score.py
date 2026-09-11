@@ -13,10 +13,17 @@ in a fifteen-word description and no similarity measure separates them.
 """
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from nimo.contracts import CandidateEvidence, MatchFeatures, ProductQuery, Selection
 from nimo.match.config import MatchConfig
 from nimo.match.features import compute_features
+
+if TYPE_CHECKING:
+    # Type-only: calibration CONSUMES the matcher (harvest recomputes scores),
+    # so a runtime import here would be circular. The matcher only ever calls
+    # `curve.predict(score)`; the curve is fitted and loaded elsewhere.
+    from nimo.calibrate.isotonic import IsotonicCurve
 
 
 @dataclass(frozen=True)
@@ -101,18 +108,32 @@ def score_candidate(
     evidence: CandidateEvidence,
     config: MatchConfig,
     retailer_domain: str | None = None,
+    curve: "IsotonicCurve | None" = None,
 ) -> ScoredCandidate:
-    """Features, then hard rules, for one candidate."""
+    """Features, then hard rules, then calibration if a curve exists."""
     features = compute_features(query, evidence, config, retailer_domain)
     weighted = weighted_score(features, config)
     score, rejected, reason = apply_hard_rules(features, weighted, config)
 
-    # `calibrated_prob` MIRRORS `raw_score` at P9 and is NOT a probability.
-    # `03` §4 stage 4 puts calibration at P10; a field named `calibrated_prob`
-    # holding an uncalibrated number is the plausible-wrong-value shape `05`
-    # §5 names, so a test asserts they are equal — which forces P10 to break
-    # that test on purpose rather than letting them quietly diverge.
-    scored_features = features.model_copy(update={"raw_score": score, "calibrated_prob": score})
+    # `calibrated_prob` is a probability ONLY when a fitted curve is supplied.
+    # Without one it MIRRORS `raw_score` and is not a probability — a field
+    # with that name holding an uncalibrated number is the plausible-wrong-
+    # value shape `05` §5 names, so the mirror state is tested explicitly and
+    # abstention stays off (`tau_abstain: 0.0`) until a curve is loaded.
+    # Hard-rule outcomes bypass the curve: a GTIN accept is 1.0 and a GTIN
+    # reject is 0.0 by identity, not by text similarity, and the curve was
+    # fitted on the text score alone (`specs/calibrate.md` §1).
+    if (
+        curve is not None
+        and not rejected
+        and reason != "gtin_exact: page GTIN equals the query barcode"
+    ):
+        calibrated = curve.predict(weighted)
+    else:
+        calibrated = score
+    scored_features = features.model_copy(
+        update={"raw_score": score, "calibrated_prob": calibrated}
+    )
     return ScoredCandidate(
         evidence=evidence,
         features=scored_features,
@@ -127,6 +148,7 @@ def rank_candidates(
     candidates: list[CandidateEvidence],
     config: MatchConfig,
     retailer_domain: str | None = None,
+    curve: "IsotonicCurve | None" = None,
 ) -> list[ScoredCandidate]:
     """Every candidate, best first. Rejected ones sort last but are KEPT.
 
@@ -137,7 +159,9 @@ def rank_candidates(
 
     Ties break on URL so the ranking is deterministic (`04` §5).
     """
-    scored = [score_candidate(query, evidence, config, retailer_domain) for evidence in candidates]
+    scored = [
+        score_candidate(query, evidence, config, retailer_domain, curve) for evidence in candidates
+    ]
     return sorted(scored, key=lambda item: (item.rejected, -item.score, item.evidence.url))
 
 
@@ -146,6 +170,7 @@ def select(
     candidates: list[CandidateEvidence],
     config: MatchConfig,
     retailer_domain: str | None = None,
+    curve: "IsotonicCurve | None" = None,
 ) -> tuple[Selection, list[ScoredCandidate]]:
     """The chosen candidate and the full ranking behind it.
 
@@ -157,7 +182,7 @@ def select(
     `specs/match.md`), so abstaining here would be thresholding a number that
     does not mean what the threshold assumes.
     """
-    ranked = rank_candidates(query, candidates, config, retailer_domain)
+    ranked = rank_candidates(query, candidates, config, retailer_domain, curve)
     usable = [item for item in ranked if not item.rejected]
 
     if not usable:

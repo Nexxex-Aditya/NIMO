@@ -2022,6 +2022,81 @@ demoted, and a test asserts it is not.
 **Status:** standing
 
 
+## 2026-09-11 — P10 calibration: the machinery, the instrument, and the number that settles the free-engine question
+**Decision:** `specs/calibrate.md` written; `src/nimo/calibrate/` built —
+hand-written pool-adjacent-violators isotonic fit, an offline harvest from the
+runner's artifacts, a reliability/abstention report — and threaded into the
+matcher so `calibrated_prob` follows a curve the moment one exists. **No curve
+is fitted.** The first harvest produced one labelled pair; the fit refused it;
+the mirror stays; the gate row says all of that.
+
+**1. The gold set is not the instrument, and the GTIN rule is.** `03` §4
+stage 4 says to fit on the hand-labelled URL gold set. That set is 5 URLs with
+no usable GTIN (`specs/match.md` §1); a curve on five points is a drawing.
+What exists instead: every `qa` row has a clean barcode, so any fetched
+candidate that publishes a GTIN is labelled for free — equal means *this is
+the product*, unequal means *it is not*, absent means *unlabelled, excluded*.
+Pairing each labelled candidate's **weighted score before hard rules** with
+that label calibrates the text-only score using ground truth from the
+identifier, on exactly the population the text score is used on. The score
+fed to the fit is pre-hard-rule so the oracle cannot leak into the number it
+labels. Selection bias — GTIN-publishing pages are the well-behaved retailers,
+not Amazon or bot walls — is printed in every report.
+
+**2. The fit refuses to be a drawing.** `fit_isotonic` raises below
+`min_labelled_pairs` (30, `config/thresholds.yaml`), and on single-class
+input. PAV is tested against hand-worked cases including a violator that
+cascades backwards. Prediction is a monotone step function, asserted.
+`calibrated_prob` is a probability *only* with a curve loaded; hard-rule
+outcomes bypass it (a GTIN accept is 1.0 by identity, not by similarity).
+P9's `test_calibrated_prob_mirrors_raw_score_until_p10` was **broken on
+purpose, as it demanded**, and replaced by tests of both states.
+
+**3. The first harvest, and what it measured.** A full `qa` run was started
+through the wired pipeline. **8 rows completed. Then all three free engines —
+google cse, duckduckgo, brave — circuit-broke, and the remaining 404 rows
+failed at `retrieve` with a typed `RowFailure`, in 137 seconds.** The runner
+did exactly what `04` §4 asks: no abort, no partial rows, every failure
+attributed, and the 8 completed rows resumable. From those 8: **one labelled
+pair** (`qa:5`, weighted score 0.40, correct). Yield ≈ 1 pair per 8 rows, so
+30 pairs needs ~240 harvested rows.
+
+**4. The first registry write-back — ever.** `qa:5` (Pan Parag, barcode
+`8902418000011`) resolved to `allibhavan.com/products/supreme-pan-parag-100g`,
+whose JSON-LD GTIN equalled the query barcode. Retrieve → fetch → extract →
+hard-rule accept → `build_entity` → `write_entities` → `append_audit`, live,
+for the first time. `data/registry/entities.jsonl` has one entity and the
+audit log has one record. The architecture closed its loop.
+
+**5. The number that settles "free as primary".** An earlier entry projected
+a full `qa` run at ~42 minutes on free engines. Measured: **8 rows per
+cooldown window before all three engines block.** At a 15-minute cooldown —
+if blocks lift on schedule, and repeated blocking usually escalates — 412
+rows is ~52 windows, ~13 hours, unattended, with resume. The engineering
+(portfolio, breaker, cache, early exit, tag verification) is all correct and
+all working; it is what made this measurable rather than mysterious. But the
+budget it works within is ~30–40 queries per window, and that cannot serve a
+submission run. **The paid search API is not a backup for the full `qa` run;
+it is the only way to do one in a working day.** Free engines remain viable —
+and free — for the 10-row demo `04` §1's P15 gate names, for development, and
+for warm re-runs against the cache, which cost nothing. Q6's framing is
+updated accordingly.
+
+**One data point, recorded not concluded from:** the single correct pair
+scored **0.40** on text alone before the GTIN confirmed it. If that holds up,
+the text score underestimates correctness — which is what calibration would
+fix, and why it is worth harvesting for.
+**Affects:** new `specs/calibrate.md`, new `src/nimo/calibrate/`
+(`isotonic.py`, `harvest.py`, `report.py`), new `tests/calibrate/` (11), new
+`data/calibration/pairs.jsonl` (n=1, reproducible from artifacts).
+`src/nimo/match/score.py` (curve threaded, type-only import),
+`tests/match/test_match.py` (mirror test replaced by both-states tests).
+`config/thresholds.yaml` (`tau_abstain` documented, `min_labelled_pairs`).
+`04-build-standards.md` §1 P10 row. `data/registry/entities.jsonl` and
+`audit.jsonl` — first entity.
+**Status:** standing — HARD-20%. Curve unfitted; abstention off; both stated.
+
+
 ---
 
 # Open questions — resolve with organizers
@@ -2033,7 +2108,7 @@ demoted, and a test asserts it is not.
 | Q3 | No URL ground truth exists in `dev`. How is URL selection (stage 4) scored? | High — cannot optimize what we cannot measure | open |
 | Q4 | `sample_output` shows an Amazon.in page as the answer for a `FR,GB` item. Is cross-market resolution acceptable? | Medium — determines whether market is a filter or a feature | open |
 | Q5 | `sample_output` carries `GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT`, absent from `dev`/`qa`. Required in submission? | Medium | open |
-| Q6 | Is scraping retailer sites permitted, and are there rate/robots constraints for the demo? **Now load-bearing, and the constraint is on the search side, not the retailer side.** Measured 2026-09-11: a self-hosted SearxNG was CAPTCHA-blocked by Google and DuckDuckGo after a few dozen queries from one IP. 412 rows x 3-5 strategies is 1200-2000 queries, which no free engine will serve. Is a paid search API (Brave/Serper/Bing) acceptable, or should the demo be scoped to the 10 rows `04` §1's P15 gate names? Separately, P4 already found Tesco serving a bot interstitial to a browser, so the retailer side is real too. | **High — blocks P7's gate and caps the demo** | open |
+| Q6 | Is scraping retailer sites permitted, and are there rate/robots constraints for the demo? **Now load-bearing, and the constraint is on the search side, not the retailer side.** Measured 2026-09-11: a self-hosted SearxNG was CAPTCHA-blocked by Google and DuckDuckGo after a few dozen queries from one IP. 412 rows x 3-5 strategies is 1200-2000 queries, which no free engine will serve. **Measured 2026-09-11 with the full pipeline: 8 rows per cooldown window before all three free engines block (~13 hours for 412 rows, if blocks lift on schedule). Free engines serve the 10-row demo and development; a paid search API is REQUIRED for a full `qa` submission run in a working day.** Is one acceptable? Separately, P4 already found Tesco serving a bot interstitial to a browser, so the retailer side is real too. | **High — blocks P7's gate and caps the demo** | open |
 | Q7 | Which LLM is provided, with what context window and rate limit? Multimodal available for image evidence? | High — image comparison is an explicit requirement | **partially resolved 2026-09-10** — CIS LLM, model `hack-fest-gpt-5.6-luna`, `azure-ai-inference` SDK, api_version `2025-03-01-preview`; key in gitignored `.env`. **New constraint found by probing: the endpoint is internal-only** — it resolves to `10.249.224.116` (RFC1918) and TCP 443 times out off-network, so it needs the NIQ VPN. Context window, rate limit and multimodal support are still unstated — re-ask, and confirm connectivity on-network before P11/P12 execute. |
 | Q8 | `dev` row with module `TOOTH CLEANING - GUM/TABLETS (NATURAL TEETH)` has `GLOBAL_PACKAGING_MATERIAL = 'GLASS'`, but that module's allowed values are `['CARDBOARD', 'PAPER', 'PLASTIC']` — no `GLASS`. Confirmed organizer data error, not a parsing issue on our side. Is a corrected value available? | Low — 1 of 412 rows, but worth flagging | open |
 | Q9 | `dev.BRAND` contains a double-encoded-UTF-8 mojibake value (`'JASÃƒâ€“N'`, 3 rows, presumably `JASÖN`); several `RETAILER_DESC` rows in both `dev`/`qa` are similarly corrupted. Can corrected-encoding sheets be provided, or should we repair on load? | Medium — degrades retrieval query quality for affected rows | open |

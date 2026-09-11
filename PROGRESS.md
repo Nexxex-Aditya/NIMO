@@ -9,37 +9,25 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P10 (calibration + abstention) — NOT STARTED
-Last completed milestone: P9 (matcher), gate met with its limits stated.
-Next milestone: P10. **No spec file exists yet** — write `specs/calibrate.md`
-first. Gate (`04` §1): calibration curve reported. Authority: `03` §4 stage
-`[4]` (Calibration, Abstention), `04` §13 HARD-20%.
+Phase: P11 (LLM adjudication) — NOT STARTED
+Last completed milestone: P10 (calibration) — machinery built, NO curve fitted.
+Next milestone: P11. **Cannot be executed off the NIQ network** (CIS endpoint is
+RFC1918). Write it and fixture-test it (`04` §6); execute on the office laptop.
+Authority: `03` §4 stage 4 Layer B, `05` §1 (untrusted content in prompts —
+injection fixture tests are DoD), `05` §3.
 
-**P10 starts with a hard fact: the instrument is 5 URLs.** An isotonic or
-Platt fit on five points is not a calibration curve. `specs/match.md` §1a has
-the end-to-end numbers (URL@1 = 1/5, unstable between runs). P10 must either
-find a bigger instrument (product-level agreement via GTIN; more gold rows) or
-say plainly that calibration cannot be fitted yet — not invent one.
+**THE NUMBER THAT MATTERS FOR PLANNING:** the full pipeline works end to end
+(first registry write-back fired on `qa:5`), but free search yields **8 rows
+per cooldown window** before all three engines block. A 412-row qa run is
+~13 hours unattended on free engines, if blocks lift on schedule. **A paid
+search API is required for a submission run in a working day.** Free engines
+serve the 10-row demo, development, and warm cache re-runs. Q6 is now the
+blocking decision.
 
-**P9 left three things for P10 to consider, all recorded, none acted on:**
-- `calibrated_prob` mirrors `raw_score`;
-  `test_calibrated_prob_mirrors_raw_score_until_p10` must be broken ON PURPOSE.
-- A page's own GTIN contributes nothing when the query barcode is corrupt
-  (394/412 dev rows). savers outranked chemist-4-u on `dev:410` for exactly
-  this reason. One row is not grounds to change a HARD-20% scoring function.
-- Write-back is GTIN-accept-only. The `calibrated_prob >= tau_merge` trigger
-  waits for a real calibration.
-
-**The full pipeline is now wired and runs live** (`uv run python -m nimo.run
---sheet qa --live --limit N`). 5 qa rows: 5/5 succeeded, 40 fetches, 148s,
-resumable. Registry write-back is persisted per merge; none has fired yet
-because no fetched page carried a matching GTIN.
-
-**Next pass on retrieval quality, in order of evidence:**
-- Amazon SEARCH LISTINGS (`/s?k=...`) get selected as product pages. A
-  listing-URL demotion, like `bundle`/`refill`, is the obvious rule.
-- S2 (barcode+brand) measured 54% brand-signal vs S1 19% and S3 15% on live
-  qa rows. Strategy order is unchanged pending a run over more rows.
+**P10 state:** `calibrated_prob` mirrors `raw_score` (tested); abstention is
+OFF (`tau_abstain: 0.0`); `data/calibration/pairs.jsonl` holds 1 pair. The
+fit takes over automatically once >=30 pairs exist — the harvest is
+`harvest_pairs` over the runner's `fetch` artifacts, offline, reproducible.
 
 ## Carried-forward work, explicitly not done
 
@@ -67,11 +55,11 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (567 passed)
+  uv run pytest                          -> EXIT 0  (581 passed)
 
 ## Do NOT re-do
 
-- P0–P9: done (P7's recall gate open, stated), gates verified by execution, committed.
+- P0–P10: done (P7's recall gate open; P10's curve unfitted — both stated), gates verified by execution, committed.
 - **Row identity is `row_uid` (`"dev:0"`), never `NAN_KEY`/`ITEM_CODE`.**
   `01` §14: all three columns carry the same rounding corruption. Never key
   an artifact, a cache entry, a registry member or a gold label on
@@ -115,8 +103,12 @@ this machine; ran its four commands directly per `04` §11:
   cannot be measured by Precision@1 on the gold set; the five adversarial
   tests `04` §8 names are the gate for it. Don't try to "fix" the gold set
   by inventing barcodes.
-- **P9: `calibrated_prob == raw_score` is asserted by a test that P10 must
-  break deliberately.** Don't update the test to pass — that is the point.
+- **P10: `calibrated_prob` mirrors `raw_score` WITHOUT a curve and follows
+  the curve WITH one — both states tested.** `fit_isotonic` refuses fewer than
+  30 pairs; don't lower that to make a curve appear.
+- **P10: the calibration instrument is the GTIN rule on qa, not the gold
+  set.** The score fed to the fit is the weighted score BEFORE hard rules, so
+  the oracle cannot leak into the number it labels.
 - **P9: write-back fires on GTIN accept ONLY.** A high text score never
   writes to the registry until a real calibration exists.
 - **P6a: the runner is the only `except Exception` in `src/`**, paired with a

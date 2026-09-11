@@ -357,16 +357,29 @@ def test_every_candidate_rejected_yields_no_url() -> None:
 # =============================================================================
 
 
-def test_calibrated_prob_mirrors_raw_score_until_p10() -> None:
-    """**This test must be broken ON PURPOSE by P10.**
-
-    A field named `calibrated_prob` holding an uncalibrated number is the
-    plausible-wrong-value shape `05` §5 names. Asserting equality here forces
-    the divergence to be a deliberate act rather than something that quietly
-    happens.
-    """
+def test_calibrated_prob_mirrors_raw_score_without_a_curve() -> None:
+    """Without a fitted curve, `calibrated_prob` is NOT a probability and must
+    say so by equalling `raw_score` exactly — the plausible-wrong-value shape
+    `05` §5 names, made visible rather than hidden."""
     scored = score_candidate(query(), page(), CONFIG)
     assert scored.features.calibrated_prob == scored.features.raw_score
+
+
+def test_calibrated_prob_follows_the_curve_when_one_is_supplied() -> None:
+    """**P10 broke the P9 mirror test on purpose, as that test demanded.**
+    With a curve, the text score is mapped through it; hard-rule outcomes
+    bypass it because a GTIN accept is 1.0 by identity, not by similarity."""
+    from nimo.calibrate import fit_isotonic
+
+    curve = fit_isotonic([0.1, 0.3, 0.5, 0.7, 0.9], [False, False, True, True, True], min_pairs=5)
+    scored = score_candidate(query(), page(), CONFIG, curve=curve)
+    assert scored.features.calibrated_prob == curve.predict(
+        scored.features.raw_score
+    )  # no hard rule fired, so raw == weighted here
+    gtin_hit = score_candidate(
+        query(barcode="5014697056627"), page(gtin="5014697056627"), CONFIG, curve=curve
+    )
+    assert gtin_hit.features.calibrated_prob == 1.0  # identity, not the curve
 
 
 def test_no_abstention_at_p9() -> None:
