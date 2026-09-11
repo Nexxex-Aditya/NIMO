@@ -2278,6 +2278,100 @@ new `tests/llm/` (29), new `tests/match/test_adjudicate.py` (24).
 on-network.
 
 
+## 2026-09-11 — P12 characteristics: the gate is ours, the validator is measured against dev, write-back moves after stage 6
+**Decision:** `specs/characteristics.md` written; `src/nimo/characteristics/`
+built — the applicability gate, per-`&`-component validation, a
+one-call-per-row extractor through the shared `nimo.llm` client, and an
+evaluation module — with `CharacteristicValues` added to `03` §3 (20
+contracts) as stage 6's output. The runner gains a seventh stage and
+**write-back moves from after `match` to after `characteristics`**, so a
+registry entity carries the classified module and validated values and a
+Tier 0/1 hit can skip stages 5-6 as `03` §2 always said it would. Per-
+characteristic accuracy is **not measured** (model unreachable off-network);
+two things that need no model are, and both are pinned.
+
+**Why, and what was decided inside it:**
+
+**1. The gate runs before the model and again after it.** `00`: a plausible
+value for a non-applicable characteristic is a wrong answer. So the extractor
+only asks about the applicable set, and a key the model volunteers outside it
+— a `MODULE`, a bristle strength for a toothpaste — is dropped before
+validation, never written. The 13 column names are read off
+`OutputRow.model_fields`, so there is exactly one list of them. `values`
+always carries all 13 keys with `applicable` beside it, so the assembler
+(P14) never has to know which characteristics apply to which module.
+
+**2. One call per row, applicable guidelines only.** `03` step 2 says inject
+only that guidance. Measured: every one of the 195 (module, characteristic)
+pairs has exactly one guideline; a module has 1-9 applicable characteristics
+(median 2); the largest carries ~10.6K characters. One call per row is ~3-4K
+prompt tokens — 412 rows inside the 2M-token budget with room, and 412 calls
+against 5000. Thirteen calls per row would not fit.
+
+**3. The validator is measured against the organizers' own answers.**
+`01` §11 predicted the numbers; the code reproduces them exactly: over
+`dev`'s 412 rows, **1,719 closed ground-truth values validate component-wise,
+2 are rejected — both the `GLASS` rows — and 187 are `&`-joined**. Pinned as
+a test with those counts. A whole-string check would have rejected 189.
+Component-wise is also why `05` §1's closed-field immunity holds: a value
+still has to assemble entirely from the fixed vocabulary.
+
+**4. The applicability gate under a wrong module is measured, and it is
+better than module accuracy suggests.** Under P5's 5-fold held-out module
+predictions (323/412 correct), the gate scores **precision 0.955, recall
+0.928, exact null pattern on 359/412 rows (87.1%)**. A wrong module is usually
+a sibling in the same family — electric vs manual brush, paste vs stain
+remover (`specs/classify.md`) — and siblings share most of their
+characteristics. This is the ceiling P5 imposes on stage 6, and the
+measurement that decides how much a page-evidence module layer is worth.
+
+**5. Write-back after stage 6, not stage 4.** Until now the entity was
+written with `module=None` and empty characteristics, so a hit could only
+ever skip retrieval, fetch and match. Now a GTIN-accepted row stores its
+module and its model-sourced values; a later hit yields
+`ModulePrediction.source="registry"` and `CharacteristicValues.source=
+"registry"` with neither the classifier nor the extractor running. Entities
+written before this change (`module=None`) fall through to the classifier
+rather than being served as an empty answer — tested. The write-back
+*decision* is unchanged: GTIN accept only. A gate-only result never
+overwrites stored values (a run without the model must not blank a good
+entity).
+
+**6. Rejected values: one retry with the allowed set, then `None`, recorded.**
+`03` step 3: "retried once, then EMPTY". The retry lists what the model said
+and the vocabulary; accepted values from the first answer are kept, only the
+rejected ones are taken from the second. What is still refused becomes `None`
+and lands in `rejected` — the trace shows what the model said and why it was
+not written.
+
+**7. Off-network, the stage runs gate-only.** `source="gate_only"`, every
+value `None`, no call — the artifact tree stays complete under the seven-
+stage sequence and the null pattern is still right. Existing six-stage trees
+(tonight's harvest included) become "incomplete" and re-run from scratch on
+resume, by design (`specs/run.md` §3); the search and page caches make that
+cost no network.
+
+**8. No image evidence.** `03` step 5 is `[PROVISIONAL — Q7]`; whether the
+pinned model accepts images is unresolved. `use_image_evidence: true` is
+refused at config load with a message naming Q7, so the four visual
+characteristics are answered from text until it resolves.
+
+**Affects:** new `specs/characteristics.md`, new `config/characteristics.yaml`,
+new `config/prompts/characteristics.md` and `characteristics_retry.md`, new
+`src/nimo/characteristics/` (`config.py`, `gate.py`, `validate.py`,
+`extract.py`, `evaluate.py`, `__main__.py`), new `tests/characteristics/`
+(25). `03-architecture.md` §2 (stage 6 output), §3 (`CharacteristicValues` +
+note), `src/nimo/contracts.py`, `tests/test_contracts.py` (20 models),
+`specs/contracts.md`. `src/nimo/run/artifacts.py` (`STAGE_SEQUENCE` + 1),
+`runner.py` (stage 7, `_module_from_hit`, write-back after stage 6, trace
+fields), `live.py` (`extractor`, `rules`), `__main__.py`
+(`--characteristics`), `src/nimo/match/writeback.py` (`characteristics=`),
+`tests/run/test_runner.py` (+3). `04-build-standards.md` §1 P12 row.
+**Status:** standing — gate open for per-characteristic accuracy until an
+on-network `--live --characteristics` run over `dev` and
+`uv run python -m nimo.characteristics --evaluate <artifacts>`.
+
+
 ---
 
 # Open questions — resolve with organizers

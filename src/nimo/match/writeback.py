@@ -69,8 +69,14 @@ def build_entity(
     module: str | None,
     now: datetime,
     existing: CanonicalEntity | None = None,
+    characteristics: dict[str, str] | None = None,
 ) -> CanonicalEntity:
     """The entity this row confirms, merging into `existing` if there is one.
+
+    `characteristics` are this row's validated, applicable values (P12); when
+    given they replace the stored ones, so a Tier 0/1 hit later carries what
+    this stage produced (`03` §4 stage 6, last paragraph). `None` keeps the
+    stored ones — a caller without values must not blank a good entity.
 
     Membership is unioned by `row_uid`, never `nan_key` — `01` §14, and the
     bug this project has introduced twice already.
@@ -104,7 +110,11 @@ def build_entity(
         module=module if module is not None else (existing.module if existing else None),
         resolved_url=best.evidence.url,
         page_title=best.evidence.title,
-        characteristics=dict(existing.characteristics) if existing else {},
+        characteristics=(
+            dict(characteristics)
+            if characteristics is not None
+            else (dict(existing.characteristics) if existing else {})
+        ),
         confidence=best.score,
         member_row_uids=merged,
         resolution_tier="tier2_retrieval",

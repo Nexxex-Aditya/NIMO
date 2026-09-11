@@ -15,10 +15,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
+from nimo.characteristics import from_entity, gate_only
 from nimo.classify.model import ModuleClassifier
 from nimo.contracts import (
     CandidateEvidence,
     CandidateURL,
+    CharacteristicRule,
+    CharacteristicValues,
     ModulePrediction,
     ProductQuery,
     RawRow,
@@ -56,6 +59,7 @@ class RowArtifacts:
     evidence: list[CandidateEvidence]
     selection: Selection
     module: ModulePrediction
+    characteristics: CharacteristicValues
     wrote_back: bool
 
 
@@ -83,25 +87,38 @@ class Stages:
         [ProductQuery, list[CandidateEvidence]], tuple[Selection, ScoredCandidate | None]
     ]
     # `True` if the registry was written. Gated inside on a GTIN accept only
-    # (`specs/match.md` §6); the runner never decides this itself.
-    writeback: Callable[[ProductQuery, ScoredCandidate | None, str | None], bool]
+    # (`specs/match.md` §6); the runner never decides this itself. Runs AFTER
+    # classify and characteristics so the entity carries both
+    # (`specs/characteristics.md` §5).
+    writeback: Callable[
+        [ProductQuery, ScoredCandidate | None, str | None, CharacteristicValues | None], bool
+    ]
     classify: Callable[[ProductQuery], ModulePrediction]
+    # (query, module, the selected page's evidence or None) -> the 13 values
+    characteristics: Callable[
+        [ProductQuery, str | None, CandidateEvidence | None], CharacteristicValues
+    ]
 
 
 def offline_stages(
-    index: RegistryIndex, thresholds: RegistryThresholds, classifier: ModuleClassifier
+    index: RegistryIndex,
+    thresholds: RegistryThresholds,
+    classifier: ModuleClassifier,
+    rules: list[CharacteristicRule],
 ) -> Stages:
     """Stages with NO network: retrieval yields nothing, fetch and match are
-    empty. Used by tests (`04` §6) and by a `--offline` run that exercises the
-    resume path without spending search budget."""
+    empty, characteristics is gate-only. Used by tests (`04` §6) and by a
+    `--offline` run that exercises the resume path without spending search
+    budget."""
     return Stages(
         normalize=normalize_row,
         registry=lambda query: lookup(query, index, thresholds),
         retrieve=lambda query: [],
         fetch=lambda candidates: [],
         match=lambda query, evidence: (_no_selection(), None),
-        writeback=lambda query, best, module: False,
+        writeback=lambda query, best, module, values: False,
         classify=classifier.predict,
+        characteristics=lambda query, module, evidence: gate_only(query.row_uid, module, rules),
     )
 
 
@@ -116,6 +133,25 @@ def _no_selection() -> Selection:
         adjudicated_by_llm=False,
         resolution_tier="tier2_retrieval",
         adjudication=None,
+    )
+
+
+def _module_from_hit(row_uid: str, result: RegistryLookupResult) -> ModulePrediction | None:
+    """The stored module of a Tier 0/1 hit, or `None` when the entity has
+    none — entities written before P12 carry `module=None` and fall through
+    to the classifier rather than being served as an empty answer."""
+    entity = result.entity
+    if entity is None or entity.module is None:
+        return None
+    return ModulePrediction(
+        row_uid=row_uid,
+        module=entity.module,
+        confidence=entity.confidence,
+        runner_up=None,
+        runner_up_gap=0.0,
+        nearest_example_row_uid=None,
+        nearest_example_similarity=0.0,
+        source="registry",
     )
 
 
@@ -149,6 +185,7 @@ def process_row(
     stages: Stages,
     clock: Callable[[], datetime],
     abort_on: tuple[type[BaseException], ...] = (),
+    rules: list[CharacteristicRule] | None = None,
 ) -> RowArtifacts | RowFailure:
     """Drive one row through every stage. Never raises for a per-row problem.
 
@@ -165,9 +202,12 @@ def process_row(
     # Typed as the Literal rather than `str`, so mypy checks every
     # assignment to the cursor against the stage names `RowFailure`
     # accepts — a typo here would otherwise reach the record as data.
-    stage: Literal["normalize", "registry", "retrieve", "fetch", "match", "classify"] = "normalize"
+    stage: Literal[
+        "normalize", "registry", "retrieve", "fetch", "match", "classify", "characteristics"
+    ] = "normalize"
     candidates: list[CandidateURL] = []
     evidence: list[CandidateEvidence] = []
+    best: ScoredCandidate | None = None
     wrote_back = False
     try:
         query = stages.normalize(row)
@@ -182,9 +222,22 @@ def process_row(
             evidence = stages.fetch(candidates)
             stage = "match"
             selection, best = stages.match(query, evidence)
-            wrote_back = stages.writeback(query, best, None)
         stage = "classify"
-        prediction = stages.classify(query)
+        stored = _module_from_hit(row.row_uid, registry_result)
+        prediction = stored if stored is not None else stages.classify(query)
+        stage = "characteristics"
+        entity = registry_result.entity
+        if stored is not None and entity is not None and rules is not None:
+            # `03` §4 stage 6, last paragraph: a registry hit carries the
+            # stored values; the gate was applied when they were written.
+            values = from_entity(row.row_uid, entity, rules)
+        else:
+            selected = next((item for item in evidence if item.url == selection.url), None)
+            values = stages.characteristics(query, prediction.module, selected)
+        if not registry_result.hit:
+            # After classify + characteristics, so the entity carries both
+            # (`specs/characteristics.md` §5). Still GTIN-accept only inside.
+            wrote_back = stages.writeback(query, best, prediction.module, values)
     except Exception as error:  # noqa: BLE001 — `04` §4's one sanctioned site
         if isinstance(error, abort_on):
             # `05` §3: a spent LLM budget aborts the RUN with a clear failure.
@@ -206,6 +259,7 @@ def process_row(
         evidence=evidence,
         selection=selection,
         module=prediction,
+        characteristics=values,
         wrote_back=wrote_back,
     )
 
@@ -217,6 +271,7 @@ def _persist(paths: RunPaths, artifacts: RowArtifacts) -> None:
     write_artifact(paths.artifacts, "fetch", artifacts.row_uid, list(artifacts.evidence))
     write_artifact(paths.artifacts, "match", artifacts.row_uid, artifacts.selection)
     write_artifact(paths.artifacts, "classify", artifacts.row_uid, artifacts.module)
+    write_artifact(paths.artifacts, "characteristics", artifacts.row_uid, artifacts.characteristics)
 
 
 def _trace_record(artifacts: RowArtifacts, run_id: str, config_fingerprint: str) -> str:
@@ -255,6 +310,14 @@ def _trace_record(artifacts: RowArtifacts, run_id: str, config_fingerprint: str)
             else None
         ),
         "wrote_back": artifacts.wrote_back,
+        "adjudicated_by_llm": artifacts.selection.adjudicated_by_llm,
+        "module_source": artifacts.module.source,
+        "characteristics_source": artifacts.characteristics.source,
+        "characteristics_applicable": len(artifacts.characteristics.applicable),
+        "characteristics_filled": sum(
+            1 for value in artifacts.characteristics.values.values() if value is not None
+        ),
+        "characteristics_rejected": len(artifacts.characteristics.rejected),
     }
     return json.dumps(record, sort_keys=True)
 
@@ -285,6 +348,7 @@ def run(
     cache_counter: CacheCounter | None = None,
     llm_counter: LlmCounter | None = None,
     abort_on: tuple[type[BaseException], ...] = (),
+    rules: list[CharacteristicRule] | None = None,
 ) -> RunSummary:
     """Drive every row, skipping completed ones. Returns the run summary.
 
@@ -311,7 +375,7 @@ def run(
             succeeded += 1
             continue
 
-        outcome = process_row(row, stages, tick, abort_on)
+        outcome = process_row(row, stages, tick, abort_on, rules)
         if isinstance(outcome, RowFailure):
             # `04` §4: a failed row writes NO artifacts. Not a partial set —
             # a later stage reading a half-populated one is how a plausible

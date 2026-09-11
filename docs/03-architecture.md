@@ -218,7 +218,7 @@ row that blocks against it. Two controls:
       ▼  (both paths converge here)
   [5] Module classification ─────► MODULE
       │
-  [6] Characteristic extraction ─► dict[char, value|EMPTY]
+  [6] Characteristic extraction ─► CharacteristicValues (all 13 columns; None == N/A or no value)
       │
   [7] Reasoning synthesis ───────► REASONING
       │
@@ -297,6 +297,16 @@ class ModulePrediction:            # P5 — stage [5] output
     nearest_example_row_uid: str | None  # closest labelled training row — the transparency surface, see the note below
     nearest_example_similarity: float    # its cosine; 0.0 when there is no training row
     source: Literal["text_baseline","page_evidence","registry"]
+
+class CharacteristicValues:        # P12 — stage [6] output, `specs/characteristics.md` §4
+    row_uid: str
+    module: str | None             # the module the applicability gate was applied under
+    values: dict[str, str | None]  # ALL 13 characteristic columns; None == not applicable OR no value. The assembler never has to know which
+    applicable: list[str]          # what the gate allowed — the null pattern's provenance
+    rejected: dict[str, str]       # characteristic -> the model's value the validator refused (after the retry). The audit surface
+    source: Literal["llm","registry","gate_only"]  # gate_only == off-network mode: gate applied, no call, every value None
+    prompt_hash: str | None        # `05` §5; None unless source == "llm"
+    model: str | None
 
 class RowFailure:                  # P6a — the batch runner's typed failure record
     row_uid: str                   # which row failed (`01` §14 — never nan_key)
@@ -461,6 +471,17 @@ implementation omitted the field and passed identity text alongside the
 entity, which meant the runner had nothing to pass and **Tier 1 returned a
 miss for every row while the tests, which built the index by hand, passed.**
 An entity must be self-sufficient for its own lookup. See `02-decision-log.md`.
+
+**`CharacteristicValues.values` always carries all 13 columns, and
+`applicable` says why the others are `None`.** The assembler (stage 8) never
+has to know which characteristics apply to which module — the gate decided
+that at stage 6 and recorded its decision. `source == "gate_only"` is the
+off-network mode: the gate applied, no model call, every value `None`. The
+null pattern is still exactly right for the module, which `01` §6 says is
+the property that matters most; measured, P5's held-out module predictions
+give it precision 0.955 / recall 0.928 on `dev` (`specs/characteristics.md`
+§6). `rejected` is the audit surface: what the model said and the validator
+refused, after the one retry `03` §4 stage 6 step 3 allows.
 
 **`AdjudicationVerdict.choice` is an index, not a URL, and that is the
 security property.** `05` §1's table promises that "an LLM can't hallucinate

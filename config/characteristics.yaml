@@ -1,0 +1,21 @@
+# P12 characteristic extraction — specs/characteristics.md.
+#
+# `04` §9: zero magic numbers in code.
+
+# How much boilerplate-stripped body text goes into the page's untrusted
+# block. Larger than adjudication's 600: ingredients ("contains sodium
+# fluoride 1450ppm"), claims ("for sensitive teeth") and pack details live in
+# the body, not the title. ~750 tokens at English density.
+body_text_chars: 3000
+
+# `03` §4 stage 6 step 5 routes the pack shot to a multimodal call for the
+# four visual characteristics (packaging material, bristle strength, head
+# size, dispense method). [PROVISIONAL — Q7]: whether the pinned model
+# accepts image input is unresolved, so this stays off and those four are
+# answered from text. Flipping it is the change when Q7 resolves.
+use_image_evidence: false
+
+# Values the validator refuses are sent back ONCE with the allowed set
+# listed (`03` §4 stage 6 step 3: "retried once, then EMPTY"). This is the
+# value-level retry; the JSON-shape retry is the client's own (`04` §7).
+max_value_retries: 1

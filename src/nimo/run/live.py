@@ -26,8 +26,17 @@ from pathlib import Path
 
 import structlog
 
+from nimo.characteristics import CharacteristicExtractor, gate_only
 from nimo.classify.model import ModuleClassifier
-from nimo.contracts import CandidateEvidence, CandidateURL, CanonicalEntity, ProductQuery, Selection
+from nimo.contracts import (
+    CandidateEvidence,
+    CandidateURL,
+    CanonicalEntity,
+    CharacteristicRule,
+    CharacteristicValues,
+    ProductQuery,
+    Selection,
+)
 from nimo.extract import extract_evidence
 from nimo.fetch import Fetcher
 from nimo.llm import LlmValidationError
@@ -79,7 +88,11 @@ class RegistryWriter:
     entities: dict[str, CanonicalEntity] = field(default_factory=dict)
 
     def write_back(
-        self, query: ProductQuery, best: ScoredCandidate | None, module: str | None
+        self,
+        query: ProductQuery,
+        best: ScoredCandidate | None,
+        module: str | None,
+        values: CharacteristicValues | None,
     ) -> bool:
         decision = decide(best)
         if not decision.allowed or best is None:
@@ -89,7 +102,14 @@ class RegistryWriter:
         # prior run would have stored this product under (`03` §3, `05` §4).
         gtin_key = next(key for key in block_keys(query) if key.method == "exact_gtin")
         existing = self.entities.get(entity_id(gtin_key))
-        entity = build_entity(query, best, module, now, existing=existing)
+        # Only values the model actually produced are stored; a gate-only
+        # result (no model) keeps whatever the entity already holds.
+        stored = (
+            {name: value for name, value in values.values.items() if value is not None}
+            if values is not None and values.source == "llm"
+            else None
+        )
+        entity = build_entity(query, best, module, now, existing=existing, characteristics=stored)
         self.entities[entity.entity_id] = entity
         write_entities(
             self.entities_path, sorted(self.entities.values(), key=lambda e: e.entity_id)
@@ -110,7 +130,9 @@ def live_stages(
     classifier: ModuleClassifier,
     writer: RegistryWriter,
     cache_counter: CacheCounter,
+    rules: list[CharacteristicRule],
     adjudicator: Adjudicator | None = None,
+    extractor: CharacteristicExtractor | None = None,
 ) -> Stages:
     """Compose the real stages. Everything network-backed is injected.
 
@@ -170,6 +192,13 @@ def live_stages(
         # `usable[0]` is Layer A's best, whatever the model said.
         return selection, (usable[0] if usable else None)
 
+    def characteristics(
+        query: ProductQuery, module: str | None, selected: CandidateEvidence | None
+    ) -> CharacteristicValues:
+        if extractor is None:
+            return gate_only(query.row_uid, module, rules)
+        return extractor.extract(query, module, selected)
+
     return Stages(
         normalize=normalize_row,
         registry=lambda query: lookup(query, index, thresholds),
@@ -178,4 +207,5 @@ def live_stages(
         match=match,
         writeback=writer.write_back,
         classify=classifier.predict,
+        characteristics=characteristics,
     )

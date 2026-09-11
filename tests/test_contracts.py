@@ -23,6 +23,7 @@ from nimo.contracts import (
     CanonicalEntity,
     CharacteristicGuideline,
     CharacteristicRule,
+    CharacteristicValues,
     DescTokens,
     GoldPair,
     GoldUrl,
@@ -220,6 +221,41 @@ MATCH_FEATURES = MatchFeatures(
     calibrated_prob=0.93,
 )
 
+CHARACTERISTIC_VALUES = CharacteristicValues(
+    row_uid="dev:0",
+    module="TOOTH CLEANING - FOAM/GEL/LIQUID/PASTE (NATURAL TEETH)",
+    values={
+        "GLOBAL_INTERSPACE_CLAIM": None,
+        "GLOBAL_CONSUMER_LIFESTAGE_CLAIM": "ADULT",
+        "GLOBAL_PACKAGING": "TUBE",
+        "GLOBAL_IF_MEDICATED": None,
+        "GLOBAL_PERCENTAGE_NATURAL_INGREDIENTS": None,
+        "GLOBAL_IF_WITH_SENSITIVE_CLAIM": "WITHOUT SENSITIVE CLAIM",
+        "GLOBAL_ORAL_CARE_FUNCTION": "ANTI BACTERIAL & WHITENING",
+        "GLOBAL_IF_WITH_FLUORIDE": "WITH FLUORIDE",
+        "GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT_GROUP": "MINT",
+        "GLOBAL_METHOD_OF_APPLICATION_DISPENSE": "PUMP",
+        "GLOBAL_PACKAGING_MATERIAL": "PLASTIC",
+        "GLOBAL_DESCRIPTIVE_SIZE_OF_TOOTHBRUSH_HEAD_CLAIM": None,
+        "GLOBAL_BRISTLE_STRENGTH_CLAIM": None,
+    },
+    applicable=[
+        "GLOBAL_CONSUMER_LIFESTAGE_CLAIM",
+        "GLOBAL_PACKAGING",
+        "GLOBAL_PERCENTAGE_NATURAL_INGREDIENTS",
+        "GLOBAL_IF_WITH_SENSITIVE_CLAIM",
+        "GLOBAL_ORAL_CARE_FUNCTION",
+        "GLOBAL_IF_WITH_FLUORIDE",
+        "GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT_GROUP",
+        "GLOBAL_METHOD_OF_APPLICATION_DISPENSE",
+        "GLOBAL_PACKAGING_MATERIAL",
+    ],
+    rejected={"GLOBAL_PERCENTAGE_NATURAL_INGREDIENTS": "MOSTLY NATURAL"},
+    source="llm",
+    prompt_hash="9f2c1d3e4b5a69788796a5b4c3d2e1f0",
+    model="hack-fest-gpt-5.6-luna",
+)
+
 ADJUDICATION_VERDICT = AdjudicationVerdict(
     choice=2,
     decisive_fields=["gtin", "size"],
@@ -274,6 +310,7 @@ ALL_MODELS: list[tuple[str, BaseModel]] = [
     ("ProductQuery", PRODUCT_QUERY),
     ("CanonicalEntity", CANONICAL_ENTITY),
     ("ModulePrediction", MODULE_PREDICTION),
+    ("CharacteristicValues", CHARACTERISTIC_VALUES),
     ("RowFailure", ROW_FAILURE),
     ("RunSummary", RUN_SUMMARY),
     ("GoldUrl", GOLD_URL),
@@ -318,7 +355,7 @@ QA_HEADER: list[str] = [
 
 def test_every_contract_model_is_covered() -> None:
     """Guards the parametrized list itself against a silently-dropped model."""
-    assert len(ALL_MODELS) == 19
+    assert len(ALL_MODELS) == 20
 
 
 @pytest.mark.parametrize("name,instance", ALL_MODELS, ids=[n for n, _ in ALL_MODELS])
@@ -475,7 +512,7 @@ def test_contracts_match_architecture_section_3_field_for_field() -> None:
     `contracts.py` to match — do not relax the test.
     """
     spec = _parse_architecture_section_3()
-    assert len(spec) == 19, f"expected 19 classes in `03` §3, parsed {len(spec)}"
+    assert len(spec) == 20, f"expected 20 classes in `03` §3, parsed {len(spec)}"
     for class_name, fields in spec.items():
         model = getattr(contracts_module, class_name, None)
         assert model is not None, f"`03` §3 declares {class_name}; contracts.py has no such model"

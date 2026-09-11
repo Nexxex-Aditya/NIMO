@@ -1,4 +1,5 @@
-"""`uv run python -m nimo.run --sheet dev [--live] [--limit N] [--adjudicate] [--out-dir D]`
+"""`uv run python -m nimo.run --sheet dev [--live] [--limit N] [--adjudicate]
+[--characteristics] [--out-dir D]` — the batch runner CLI.
 
 `print` here is the CLI's user-facing output, which `04` §10 permits; nothing
 in the library prints.
@@ -13,6 +14,8 @@ Two modes:
   real search and fetch budget — `--limit N` caps the rows for a trial run.
   Resumable: a killed run skips completed rows on restart, and every registry
   merge is persisted the moment it happens.
+- **`--characteristics`** (with `--live`): P12 extraction through the model;
+  without it the stage runs gate-only (the null pattern, no values).
 - **`--adjudicate`** (with `--live`): Tier 3 LLM adjudication on rows where
   Layer A could not separate the top candidates. Needs `CIS_LLM_API_KEY` in
   `.env` and the NIQ network (`config/models.yaml`). `--out-dir` writes the
@@ -28,11 +31,21 @@ retrying it 412 times would print the same error 412 times.
 import sys
 from pathlib import Path
 
+from nimo.characteristics import (
+    CharacteristicExtractor,
+    guideline_index,
+    load_characteristics_config,
+)
 from nimo.classify import load_classify_config
 from nimo.classify.model import ModuleClassifier
 from nimo.fetch import Fetcher, default_page_cache, load_fetch_config
 from nimo.llm import LlmBudgetExceeded, LlmClient, LlmCounter, load_llm_config, load_prompt
-from nimo.loader import load_characteristic_rules, load_module_labels, load_rows
+from nimo.loader import (
+    load_characteristic_guidelines,
+    load_characteristic_rules,
+    load_module_labels,
+    load_rows,
+)
 from nimo.match import Adjudicator, load_match_config
 from nimo.normalize import normalize_rows
 from nimo.registry import build_index, fit_identity_idf, load_thresholds, read_entities
@@ -58,6 +71,7 @@ def main(argv: list[str]) -> int:
     live = "--live" in argv
     limit = int(argv[argv.index("--limit") + 1]) if "--limit" in argv else None
     adjudicate = "--adjudicate" in argv
+    characteristics = "--characteristics" in argv
     out_dir = Path(argv[argv.index("--out-dir") + 1]) if "--out-dir" in argv else OUT_DIR
     if adjudicate and not live:
         print("--adjudicate needs --live: Tier 3 adjudicates fetched candidates.")
@@ -97,8 +111,8 @@ def main(argv: list[str]) -> int:
     llm_counter = LlmCounter()
 
     if not live:
-        stages = offline_stages(index, thresholds, classifier)
-        summary = run(rows, stages, paths, run_id, cache_counter=counter)
+        stages = offline_stages(index, thresholds, classifier, rules)
+        summary = run(rows, stages, paths, run_id, cache_counter=counter, rules=rules)
     else:
         rcfg = load_retrieval_config()
         fcfg = load_fetch_config()
@@ -123,24 +137,34 @@ def main(argv: list[str]) -> int:
             entities={entity.entity_id: entity for entity in entities},
         )
         adjudicator: Adjudicator | None = None
-        if adjudicate:
+        extractor: CharacteristicExtractor | None = None
+        if adjudicate or characteristics:
             # Imported here and only here: the SDK is the network, and no other
             # path needs it (`specs/adjudicate.md` §6).
             from nimo.llm.azure import azure_complete_fn
 
             llm_config = load_llm_config()
             assert settings.cis_llm_api_key is not None  # checked above
-            adjudicator = Adjudicator(
-                llm=LlmClient(
-                    config=llm_config,
-                    complete=azure_complete_fn(llm_config, settings.cis_llm_api_key),
-                    cache_dir=CACHE_DIR / "llm",
-                    counter=llm_counter,
-                    retry_prompt=load_prompt("json_retry"),
-                ),
-                prompt=load_prompt("adjudicate"),
-                config=load_match_config(),
+            llm = LlmClient(
+                config=llm_config,
+                complete=azure_complete_fn(llm_config, settings.cis_llm_api_key),
+                cache_dir=CACHE_DIR / "llm",
+                counter=llm_counter,
+                retry_prompt=load_prompt("json_retry"),
             )
+            if adjudicate:
+                adjudicator = Adjudicator(
+                    llm=llm, prompt=load_prompt("adjudicate"), config=load_match_config()
+                )
+            if characteristics:
+                extractor = CharacteristicExtractor(
+                    llm=llm,
+                    prompt=load_prompt("characteristics"),
+                    retry_prompt=load_prompt("characteristics_retry"),
+                    rules=rules,
+                    guidelines=guideline_index(load_characteristic_guidelines(WORKBOOK)),
+                    config=load_characteristics_config(),
+                )
         try:
             stages = live_stages(
                 searx=searx,
@@ -153,7 +177,9 @@ def main(argv: list[str]) -> int:
                 classifier=classifier,
                 writer=writer,
                 cache_counter=counter,
+                rules=rules,
                 adjudicator=adjudicator,
+                extractor=extractor,
             )
             summary = run(
                 rows,
@@ -163,6 +189,7 @@ def main(argv: list[str]) -> int:
                 cache_counter=counter,
                 llm_counter=llm_counter,
                 abort_on=(LlmBudgetExceeded,),
+                rules=rules,
             )
         finally:
             searx.close()
@@ -174,10 +201,15 @@ def main(argv: list[str]) -> int:
         if blocked_hosts:
             print(f"hosts that blocked us ({len(blocked_hosts)}): {', '.join(blocked_hosts[:12])}")
         print(f"registry: {len(writer.entities)} entities after this run")
-        if adjudicate:
+        if adjudicate or characteristics:
             print(
-                f"adjudication: {llm_counter.calls} calls, {llm_counter.cache_hits} cache hits, "
+                f"model: {llm_counter.calls} calls, {llm_counter.cache_hits} cache hits, "
                 f"{llm_counter.rejected_verdicts} verdicts rejected by validation"
+            )
+        if not characteristics:
+            print(
+                "characteristics: GATE-ONLY (null pattern applied, no values) — pass "
+                "--characteristics on the NIQ network to extract values."
             )
 
     print(format_summary(summary))

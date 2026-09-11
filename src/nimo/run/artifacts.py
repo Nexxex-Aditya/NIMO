@@ -22,6 +22,7 @@ STAGE_SEQUENCE: tuple[str, ...] = (
     "fetch",
     "match",
     "classify",
+    "characteristics",
 )
 
 

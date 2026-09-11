@@ -131,6 +131,19 @@ class CanonicalEntity(BaseModel):  # §1a — one persisted, resolved product
     updated_at: datetime
 
 
+class CharacteristicValues(BaseModel):  # P12 — stage [6] output, `specs/characteristics.md` §4
+    model_config = ConfigDict(frozen=True)
+
+    row_uid: str
+    module: str | None  # the module the applicability gate was applied under
+    values: dict[str, str | None]  # ALL 13 columns; None == not applicable OR no value
+    applicable: list[str]  # what the gate allowed — the null pattern's provenance
+    rejected: dict[str, str]  # characteristic -> the model's value the validator refused
+    source: Literal["llm", "registry", "gate_only"]
+    prompt_hash: str | None  # `05` §5; None unless source == "llm"
+    model: str | None
+
+
 class RowFailure(BaseModel):  # P6a — the batch runner's typed failure record
     model_config = ConfigDict(frozen=True)
 

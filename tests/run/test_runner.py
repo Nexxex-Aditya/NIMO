@@ -15,8 +15,16 @@ import pytest
 
 from nimo.classify import load_classify_config
 from nimo.classify.model import ModuleClassifier
-from nimo.contracts import ProductQuery, RawRow, RegistryLookupResult, RowFailure
+from nimo.contracts import (
+    CanonicalEntity,
+    CharacteristicValues,
+    ProductQuery,
+    RawRow,
+    RegistryLookupResult,
+    RowFailure,
+)
 from nimo.loader import load_characteristic_rules, load_module_labels, load_rows
+from nimo.match import ScoredCandidate
 from nimo.normalize import normalize_rows
 from nimo.registry import build_index, fit_identity_idf, load_thresholds
 from nimo.run import (
@@ -58,7 +66,7 @@ def stages(dev_rows: list[RawRow]) -> Stages:
         queries, load_module_labels(WORKBOOK, "dev", rules), load_classify_config()
     )
     index = build_index([], fit_identity_idf(queries))
-    return offline_stages(index, load_thresholds(), classifier)
+    return offline_stages(index, load_thresholds(), classifier, rules)
 
 
 def paths_in(tmp_path: Path) -> RunPaths:
@@ -191,6 +199,113 @@ def test_process_row_never_raises_for_a_per_row_problem(
     outcome = process_row(dev_rows[3], broken, fixed_clock)
     assert isinstance(outcome, RowFailure)
     assert outcome.occurred_at == FIXED_TS
+
+
+# --- P12: the seventh stage, write-back after it, the registry hit path ------------
+
+
+def test_write_back_receives_the_module_and_the_characteristics(
+    dev_rows: list[RawRow], stages: Stages, tmp_path: Path
+) -> None:
+    """`specs/characteristics.md` §5: write-back runs AFTER classify and
+    characteristics so the entity can carry both. The stub records what it
+    was handed."""
+    received: list[tuple[str | None, str]] = []
+
+    def recording(
+        query: ProductQuery,
+        best: ScoredCandidate | None,
+        module: str | None,
+        values: CharacteristicValues | None,
+    ) -> bool:
+        assert values is not None
+        received.append((module, values.source))
+        return False
+
+    run(dev_rows[:3], replace(stages, writeback=recording), paths_in(tmp_path), "r", fixed_clock)
+    assert len(received) == 3
+    assert all(module is not None and source == "gate_only" for module, source in received)
+
+
+def test_a_registry_hit_with_a_stored_module_skips_classify_and_extraction(
+    dev_rows: list[RawRow], stages: Stages, tmp_path: Path
+) -> None:
+    """`03` §4 stage 6, last paragraph: a Tier 0/1 hit carries the stored
+    module and values; neither the classifier nor the extractor runs."""
+    entity = CanonicalEntity(
+        entity_id="gtin:test",
+        barcode="5014697056627",
+        brand="AQUAFRESH",
+        size_ml_equiv=100.0,
+        size_g_equiv=None,
+        count=1,
+        variant_terms=["whitening"],
+        module="TOOTH CLEANING - FOAM/GEL/LIQUID/PASTE (NATURAL TEETH)",
+        resolved_url="https://boots.com/p",
+        page_title="p",
+        characteristics={"GLOBAL_IF_WITH_FLUORIDE": "WITH FLUORIDE"},
+        confidence=1.0,
+        member_row_uids=["qa:5"],
+        resolution_tier="tier2_retrieval",
+        created_at=FIXED_TS,
+        updated_at=FIXED_TS,
+    )
+    hit = RegistryLookupResult(hit=True, tier="tier0_exact", entity=entity, similarity=None)
+    classified: list[str] = []
+    extracted: list[str] = []
+
+    def classify(query: ProductQuery) -> object:
+        classified.append(query.row_uid)
+        return stages.classify(query)
+
+    def characteristics(query: ProductQuery, module: str | None, evidence: object) -> object:
+        extracted.append(query.row_uid)
+        return stages.characteristics(query, module, None)
+
+    hitting = replace(
+        stages,
+        registry=lambda query: hit,
+        classify=classify,  # type: ignore[arg-type]
+        characteristics=characteristics,  # type: ignore[arg-type]
+    )
+    rules = load_characteristic_rules(WORKBOOK)
+    paths = paths_in(tmp_path)
+    summary = run(dev_rows[:1], hitting, paths, "r", fixed_clock, rules=rules)
+    assert summary.rows_succeeded == 1 and classified == [] and extracted == []
+    module = artifact_path(paths.artifacts, "classify", "dev:0").read_text(encoding="utf-8")
+    values = artifact_path(paths.artifacts, "characteristics", "dev:0").read_text(encoding="utf-8")
+    assert '"source":"registry"' in module and '"source":"registry"' in values
+    assert '"GLOBAL_IF_WITH_FLUORIDE":"WITH FLUORIDE"' in values
+
+
+def test_a_registry_hit_without_a_stored_module_falls_through_to_the_classifier(
+    dev_rows: list[RawRow], stages: Stages, tmp_path: Path
+) -> None:
+    """Entities written before P12 carry `module=None`; they must not be
+    served as an empty answer."""
+    entity = CanonicalEntity(
+        entity_id="gtin:old",
+        barcode="5014697056627",
+        brand="AQUAFRESH",
+        size_ml_equiv=100.0,
+        size_g_equiv=None,
+        count=1,
+        variant_terms=["whitening"],
+        module=None,
+        resolved_url="https://boots.com/p",
+        page_title="p",
+        characteristics={},
+        confidence=1.0,
+        member_row_uids=["qa:5"],
+        resolution_tier="tier2_retrieval",
+        created_at=FIXED_TS,
+        updated_at=FIXED_TS,
+    )
+    hit = RegistryLookupResult(hit=True, tier="tier0_exact", entity=entity, similarity=None)
+    paths = paths_in(tmp_path)
+    run(dev_rows[:1], replace(stages, registry=lambda query: hit), paths, "r", fixed_clock)
+    module = artifact_path(paths.artifacts, "classify", "dev:0").read_text(encoding="utf-8")
+    assert '"source":"text_baseline"' in module
 
 
 # --- resume ------------------------------------------------------------------
