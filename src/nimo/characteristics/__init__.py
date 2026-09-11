@@ -23,6 +23,7 @@ from nimo.characteristics.extract import (
     characteristics_block,
     evidence_block,
     guideline_index,
+    relevant_excerpt,
 )
 from nimo.characteristics.gate import (
     CHARACTERISTIC_COLUMNS,
@@ -56,5 +57,6 @@ __all__ = [
     "load_characteristic_labels",
     "load_characteristics_config",
     "normalise",
+    "relevant_excerpt",
     "validate",
 ]

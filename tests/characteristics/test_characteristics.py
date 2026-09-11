@@ -312,12 +312,44 @@ def test_no_module_or_no_applicable_characteristics_makes_no_call(
     assert fn.calls == []
 
 
-def test_evidence_block_delimits_every_page_field_and_caps_body() -> None:
+def test_evidence_block_delimits_every_page_field_and_budgets_body() -> None:
     config = load_characteristics_config()
     block = evidence_block(page(body="x" * 10_000, gtin="5014697056627"), config)
     assert block.count(f"<{TAG} candidate=") == block.count(f"</{TAG}>") >= 3
     body = block.split('field="body_text">\n', 1)[1].split("\n</", 1)[0]
-    assert len(body) == config.body_text_chars
+    assert len(body) <= config.body_text_chars
+    assert len(body) == config.excerpt_prefix_chars  # no anchors in "xxxx": the prefix only
+
+
+def test_excerpt_reaches_ingredients_buried_under_navigation() -> None:
+    """**The measured case** (`qa:9`): 3000 characters of menus before the
+    product section. A prefix cap never reaches the ingredients; the
+    anchored excerpt does, and marks the jump."""
+    from nimo.characteristics import relevant_excerpt
+
+    config = load_characteristics_config()
+    nav = "Skip to content Brands A-F Bare Bones Bath House Dame Dook Faith In Nature " * 60
+    product = "PRO Whitening Toothpaste Tablets. Ingredients: sodium fluoride 1450ppm, xylitol."
+    body = nav + product + " Footer links " * 40
+    assert len(nav) > config.body_text_chars
+    excerpt = relevant_excerpt(body, config)
+    assert "sodium fluoride 1450ppm" in excerpt
+    assert " … " in excerpt and len(excerpt) <= config.body_text_chars
+    assert excerpt.startswith(nav[: config.excerpt_prefix_chars])
+    # the budget is strict, separators included
+    dense = relevant_excerpt(" mint " * 3000, config)
+    assert len(dense) == config.body_text_chars
+
+
+def test_excerpt_merges_overlapping_windows_in_page_order() -> None:
+    from nimo.characteristics import relevant_excerpt
+
+    config = load_characteristics_config()
+    body = "a" * 2000 + " mint flavour with fluoride " + "b" * 2000 + " plastic tube " + "c" * 500
+    excerpt = relevant_excerpt(body, config)
+    assert excerpt.count(" … ") == 2  # prefix … first cluster … second cluster
+    assert excerpt.index("mint flavour") < excerpt.index("plastic tube")
+    assert excerpt.count("mint flavour") == 1  # overlapping anchors merged, not repeated
 
 
 def test_characteristics_block_lists_allowed_values_for_closed_only(

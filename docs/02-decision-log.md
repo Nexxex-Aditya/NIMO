@@ -2588,6 +2588,28 @@ alignment check on `NAN_KEY`/`ITEM_CODE` (`69984c5`).
 **Status:** standing.
 
 
+## 2026-09-11 — Characteristics excerpt: anchor windows, not a prefix — found by reading the real prompt
+**Decision:** The page text a characteristics call sees is no longer
+`body_text[:3000]`. It is the page prefix (800 chars) plus windows (220
+chars) around characteristic-relevant anchor terms — `ingredient`,
+`fluorid`, `ppm`, `flavour`, `pack`, `tube`, `bristle`, … in
+`config/characteristics.yaml` — merged in page order, joined with ` … ` so
+the model can see the jumps, cut strictly to the 3000-character budget.
+**Why:** rendering the *actual* prompt for a harvested row (`qa:9`,
+`romystore.co.uk`) showed the first 3000 characters of its body text are
+entirely site navigation — menus, a brand index, "popular today" — and the
+product section starts at character 2744, ingredients later. Measured over
+18 harvested pages: on most the product text is near the top and a prefix
+works; on Shopify-style pages (`qa:9` title at 2744, `qa:15` first relevant
+term at 9552) a prefix cap never reaches it. The office-laptop run would
+have coded those rows from a title and a wall of menus, with no error
+anywhere. No fixture would have found this; reading one real prompt did.
+**Affects:** `config/characteristics.yaml` (three keys),
+`src/nimo/characteristics/config.py`, `extract.py` (`relevant_excerpt`),
+`__init__.py`, `tests/characteristics/` (+2, one extended).
+**Status:** standing.
+
+
 ---
 
 # Open questions — resolve with organizers

@@ -64,7 +64,7 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (733 passed)
+  uv run pytest                          -> EXIT 0  (735 passed)
 
 ## Do NOT re-do
 

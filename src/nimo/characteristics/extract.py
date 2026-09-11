@@ -45,6 +45,51 @@ def guideline_index(guidelines: list[CharacteristicGuideline]) -> dict[str, str]
     return {f"{g.module}\t{g.characteristic}": g.guideline_text for g in guidelines}
 
 
+def relevant_excerpt(body_text: str, config: CharacteristicsConfig) -> str:
+    """The page prefix plus windows around anchor terms, merged in page order,
+    cut to `body_text_chars`.
+
+    Measured before designing (`config/characteristics.yaml`): a plain prefix
+    hands the model 3000 characters of site navigation on Shopify-style pages
+    and never reaches the ingredients. Windows are joined with ` … ` so the
+    model can see they are excerpts, not contiguous text.
+    """
+    if not body_text:
+        return ""
+    lowered = body_text.lower()
+    spans: list[tuple[int, int]] = []
+    if config.excerpt_prefix_chars:
+        spans.append((0, min(len(body_text), config.excerpt_prefix_chars)))
+    half = config.excerpt_window_chars // 2
+    for term in config.excerpt_anchor_terms:
+        start = 0
+        while True:
+            index = lowered.find(term, start)
+            if index < 0:
+                break
+            spans.append((max(0, index - half), min(len(body_text), index + len(term) + half)))
+            start = index + len(term)
+    spans.sort()
+    merged: list[list[int]] = []
+    for begin, end in spans:
+        if merged and begin <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([begin, end])
+    separator = " … "
+    pieces: list[str] = []
+    used = 0
+    for begin, end in merged:
+        overhead = len(separator) if pieces else 0
+        room = config.body_text_chars - used - overhead
+        if room <= 0:
+            break
+        piece = body_text[begin:end][:room]
+        pieces.append(piece)
+        used += len(piece) + overhead
+    return separator.join(pieces)
+
+
 def evidence_block(evidence: CandidateEvidence | None, config: CharacteristicsConfig) -> str:
     """The selected page, every page-derived field delimited. `None` when the
     row has no page: the record alone is what the model gets (`01` §6)."""
@@ -69,7 +114,7 @@ def evidence_block(evidence: CandidateEvidence | None, config: CharacteristicsCo
         ("jsonld", jsonld),
         ("breadcrumbs", " > ".join(evidence.breadcrumbs)),
         ("price", evidence.price or ""),
-        ("body_text", evidence.body_text[: config.body_text_chars]),
+        ("body_text", relevant_excerpt(evidence.body_text, config)),
     ]
     blocks = [delimit(text, candidate=1, field=field) for field, text in fields if text.strip()]
     header = f"url: {evidence.url}\nfetch_status: {evidence.fetch_status}"

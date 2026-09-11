@@ -2,11 +2,61 @@
 #
 # `04` §9: zero magic numbers in code.
 
-# How much boilerplate-stripped body text goes into the page's untrusted
-# block. Larger than adjudication's 600: ingredients ("contains sodium
-# fluoride 1450ppm"), claims ("for sensitive teeth") and pack details live in
-# the body, not the title. ~750 tokens at English density.
+# How much page text goes into the untrusted block, in total. Larger than
+# adjudication's 600: ingredients ("contains sodium fluoride 1450ppm"),
+# claims ("for sensitive teeth") and pack details live in the body, not the
+# title. ~750 tokens at English density.
 body_text_chars: 3000
+
+# HOW that budget is spent — measured 2026-09-11 on harvested pages. A plain
+# prefix is wrong: on Shopify-style pages the first 3000 characters are
+# entirely site navigation (`qa:9`: title at 2744, ingredients later;
+# `qa:15`: first relevant word at 9552). So the excerpt is the page prefix
+# plus windows around characteristic-relevant anchor terms, merged in page
+# order, cut to the budget. On pages where the product text is at the top
+# (most retailers) this degenerates to the prefix.
+excerpt_prefix_chars: 800
+excerpt_window_chars: 220
+excerpt_anchor_terms:
+  - ingredient
+  - fluorid          # fluoride, fluoridated
+  - ppm
+  - flavour
+  - flavor
+  - mint
+  - sensitiv
+  - whiten
+  - natural
+  - "%"
+  - vegan
+  - sls
+  - alcohol
+  - medicated
+  - adult
+  - child
+  - kids
+  - baby
+  - teen
+  - pump
+  - tube
+  - bottle
+  - spray
+  - tablet
+  - refill
+  - pack
+  - " ml"
+  - bristle
+  - soft
+  - medium
+  - firm
+  - head
+  - compact
+  - plastic
+  - glass
+  - cardboard
+  - paper
+  - metal
+  - bamboo
 
 # `03` §4 stage 6 step 5 routes the pack shot to a multimodal call for the
 # four visual characteristics (packaging material, bristle strength, head
