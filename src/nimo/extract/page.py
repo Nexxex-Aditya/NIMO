@@ -126,6 +126,8 @@ def extract_evidence(
     fetched_at: datetime,
     *,
     status: FetchStatus = "ok",
+    http_status: int | None = None,
+    detail: str | None = None,
     body_text_limit: int = 20000,
     image_limit: int = 12,
 ) -> CandidateEvidence:
@@ -145,6 +147,17 @@ def extract_evidence(
         warnings.append(
             "no JSON-LD, no OpenGraph and almost no text — likely a JS shell or bot wall"
         )
+    if status != "ok":
+        # `05` §5's aggregate-domain-block guardrail needs the reason in the
+        # artifact, not only in the fetcher's counters: the office run of
+        # 2026-09-12 had 94% of fetches fail as `http_error` with no status
+        # recorded anywhere a later reader could see (a corporate proxy).
+        reason = f"fetch {status}"
+        if http_status is not None:
+            reason += f": HTTP {http_status}"
+        if detail:
+            reason += f" ({detail})"
+        warnings.insert(0, reason)
 
     return CandidateEvidence(
         url=url,

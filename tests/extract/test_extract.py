@@ -202,10 +202,26 @@ def test_a_bot_wall_still_produces_evidence(name: str, marker: str) -> None:
     """`03` §4 stage 3: "A page that fails extraction gets `fetch_status` set
     and stays in the record. Do not drop it — a systematic block on one
     retailer is a finding, not noise." Measured, this is the common case."""
-    evidence = extract_evidence(f"https://{name}.test/p", page(name), TS, status="blocked")
+    evidence = extract_evidence(
+        f"https://{name}.test/p", page(name), TS, status="blocked", http_status=403
+    )
     assert evidence.fetch_status == "blocked"
     assert evidence.content_hash.startswith("sha256:")
     assert marker in (evidence.title or "") + evidence.body_text
+    # The reason travels in the artifact (`05` §5 aggregate domain block):
+    # office run 2026-09-12, 94% `http_error` and nothing recorded to say why.
+    assert evidence.parse_warnings[0] == "fetch blocked: HTTP 403"
+
+
+def test_a_failed_fetch_records_its_status_and_detail_first() -> None:
+    evidence = extract_evidence(
+        "https://x.test/p", "", TS, status="http_error", http_status=502, detail="Bad Gateway"
+    )
+    assert evidence.parse_warnings[0] == "fetch http_error: HTTP 502 (Bad Gateway)"
+    timeout = extract_evidence("https://x.test/p", "", TS, status="timeout")
+    assert timeout.parse_warnings[0] == "fetch timeout"
+    ok = extract_evidence("https://x.test/p", "<html><title>t</title>x</html>", TS)
+    assert not any(w.startswith("fetch ") for w in ok.parse_warnings)
 
 
 def test_an_empty_response_is_flagged_not_silently_accepted() -> None:

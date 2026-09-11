@@ -223,6 +223,8 @@ def live_stages(
                     outcome.html,
                     datetime.now(UTC),
                     status=outcome.status,
+                    http_status=outcome.http_status,
+                    detail=outcome.detail,
                 )
             )
         return evidence
