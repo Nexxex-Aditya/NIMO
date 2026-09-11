@@ -32,6 +32,18 @@ class MatchConfig:
     negative_flags: tuple[str, ...]
     listing_url_patterns: tuple[str, ...]
     page_text_chars: int
+    # P11 — `specs/adjudicate.md`; all [PROVISIONAL] until the gate runs
+    adjudicate_gap_threshold: float
+    adjudicate_top_k: int
+    adjudicate_body_text_chars: int
+    adjudicate_max_rationale_chars: int
+
+
+def _positive_int(block: dict[object, object], key: str, path: Path) -> int:
+    value = block.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise MatchConfigError(f"{path}: `adjudication.{key}` must be a positive integer.")
+    return value
 
 
 def _weight(data: dict[str, object], section: str, key: str, path: Path) -> float:
@@ -61,6 +73,15 @@ def load_match_config(path: Path = CONFIG_PATH) -> MatchConfig:
     chars = data.get("page_text_chars")
     if isinstance(chars, bool) or not isinstance(chars, int) or chars < 1:
         raise MatchConfigError(f"{path}: `page_text_chars` must be a positive integer.")
+    adjudication = data.get("adjudication")
+    if not isinstance(adjudication, dict):
+        raise MatchConfigError(f"{path}: `adjudication` must be a mapping (`specs/adjudicate.md`).")
+    gap = adjudication.get("runner_up_gap_threshold")
+    if isinstance(gap, bool) or not isinstance(gap, int | float) or not 0.0 <= gap <= 1.0:
+        raise MatchConfigError(f"{path}: `adjudication.runner_up_gap_threshold` must be in [0, 1].")
+    top_k = _positive_int(adjudication, "top_k", path)
+    body_chars = _positive_int(adjudication, "body_text_chars", path)
+    rationale_chars = _positive_int(adjudication, "max_rationale_chars", path)
     floor = data.get("score_floor")
     if isinstance(floor, bool) or not isinstance(floor, int | float) or not 0.0 <= floor < 1.0:
         raise MatchConfigError(f"{path}: `score_floor` must be in [0, 1).")
@@ -78,6 +99,10 @@ def load_match_config(path: Path = CONFIG_PATH) -> MatchConfig:
         negative_flags=tuple(str(flag).lower() for flag in flags),
         listing_url_patterns=tuple(str(pattern).lower() for pattern in listing),
         page_text_chars=chars,
+        adjudicate_gap_threshold=float(gap),
+        adjudicate_top_k=top_k,
+        adjudicate_body_text_chars=body_chars,
+        adjudicate_max_rationale_chars=rationale_chars,
     )
 
     total = (

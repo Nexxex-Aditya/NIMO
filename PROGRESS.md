@@ -9,12 +9,16 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P11 (LLM adjudication) — NOT STARTED
-Last completed milestone: P10 (calibration) — machinery built, NO curve fitted.
-Next milestone: P11. **Cannot be executed off the NIQ network** (CIS endpoint is
-RFC1918). Write it and fixture-test it (`04` §6); execute on the office laptop.
-Authority: `03` §4 stage 4 Layer B, `05` §1 (untrusted content in prompts —
-injection fixture tests are DoD), `05` §3.
+Phase: P12 (characteristics) — NOT STARTED
+Last completed milestone: P11 (LLM adjudication) — **built and fixture-tested;
+gate (delta over P9) NOT measured**, needs the NIQ network. Run
+`specs/adjudicate.md` §8 on the office laptop; the Azure adapter
+(`src/nimo/llm/azure.py`) is the only unverified code.
+Next milestone: P12. Authority: `03` §4 stage 6 (applicability gate FIRST,
+per-characteristic guideline injection, per-`&`-component closed validation —
+`01` §11), `05` §1 (untrusted content — the shared `nimo.llm` client already
+delimits and validates; reuse it), `05` §3. Like P11: write and fixture-test
+here, execute on-network.
 
 **THE NUMBER THAT MATTERS FOR PLANNING:** the full pipeline works end to end
 (registry write-back has fired twice: `qa:5`, `qa:9`). **No paid search key
@@ -55,16 +59,18 @@ fit takes over automatically once >=30 pairs exist — the harvest is
 
 ## Verified state (re-check on resume, don't trust blindly)
 
-Last `make check`: PASS as of the free-engine budget commit (after P10). `make` is absent on
+Last `make check`: PASS as of the P11 commit. `make` is absent on
 this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (594 passed)
+  uv run pytest                          -> EXIT 0  (650 passed)
 
 ## Do NOT re-do
 
-- P0–P10: done (P7's recall gate open; P10's curve unfitted — both stated), gates verified by execution, committed.
+- P0–P11: done (P7's recall gate open; P10's curve unfitted; P11's delta unmeasured off-network — all stated), gates verified by execution where they can be, committed.
+- **P11: `AdjudicationVerdict.choice` is an INDEX into the pack, never a URL** — the schema has no URL field on purpose (`05` §1). Don't add one. A GTIN accept is never adjudicated; write-back ignores the model; a rejected verdict keeps Layer A's pick, a spent budget aborts the run.
+- **P11: `nimo.llm` is the shared client for P12/P13.** Prompts go in `config/prompts/*.md`; untrusted page text goes through `delimit()`; answers go through `complete_json()`. Don't write a second client.
 - **Row identity is `row_uid` (`"dev:0"`), never `NAN_KEY`/`ITEM_CODE`.**
   `01` §14: all three columns carry the same rounding corruption. Never key
   an artifact, a cache entry, a registry member or a gold label on
@@ -143,4 +149,4 @@ this machine; ran its four commands directly per `04` §11:
   `CandidateEvidence.jsonld_product`/`.og` are `dict[str, Any]`;
   `barcode_valid` is a function, not a field; `DescTokens`/`CanonicalEntity`
   carry both `size_ml_equiv` and `size_g_equiv`, never interconverted.
-- Doc versions in force: `01` v1.4, `03` v0.8, `04` v0.7, `05` v0.2.
+- Doc versions in force: `01` v1.4, `03` v0.9, `04` v0.7, `05` v0.2.

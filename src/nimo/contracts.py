@@ -261,6 +261,16 @@ class MatchFeatures(BaseModel):  # one per candidate — the audit surface
     calibrated_prob: float
 
 
+class AdjudicationVerdict(BaseModel):  # P11 — Tier 3's schema-validated answer
+    model_config = ConfigDict(frozen=True)
+
+    choice: int | None  # 1-based index into the evidence pack; None == none fits. NEVER a URL
+    decisive_fields: list[str]  # which evidence decided it — the citation stage 7 quotes
+    rationale: str  # short, grounded; capped by config. Not chain-of-thought (`04` §7)
+    prompt_hash: str  # sha256 of the prompt file — `05` §5 version skew. Set by us
+    model: str  # the pinned model id that answered — `05` §3
+
+
 class Selection(BaseModel):
     model_config = ConfigDict(frozen=True)
 
@@ -271,6 +281,7 @@ class Selection(BaseModel):
     features: MatchFeatures | None  # None when resolved via registry hit (tier 0/1)
     adjudicated_by_llm: bool
     resolution_tier: Literal["tier0_exact", "tier1_ann", "tier2_retrieval", "tier3_llm"]
+    adjudication: AdjudicationVerdict | None  # set iff adjudicated_by_llm
 
 
 class OutputRow(BaseModel):  # serializes to qa header exactly, in order

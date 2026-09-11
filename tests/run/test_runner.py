@@ -276,11 +276,12 @@ def test_a_cold_registry_reports_every_row_as_tier2(
 def test_llm_and_cache_counters_are_reported_as_zero_not_omitted(
     dev_rows: list[RawRow], stages: Stages, tmp_path: Path
 ) -> None:
-    """Wired end to end before the phases that populate them (`04` §10)."""
+    """Wired end to end (`04` §10); offline stages make no LLM call and hit
+    no cache, and the summary says so rather than omitting the fields."""
     summary = run(dev_rows[:2], stages, paths_in(tmp_path), "r", fixed_clock)
     assert (summary.llm_calls, summary.llm_tokens) == (0, 0)
     assert (summary.cache_hits, summary.cache_misses) == (0, 0)
-    assert "structurally zero" in format_summary(summary)
+    assert "llm calls: 0" in format_summary(summary)
 
 
 def test_config_hash_is_stable_and_content_addressed(tmp_path: Path) -> None:

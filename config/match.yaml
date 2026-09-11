@@ -107,3 +107,22 @@ listing_url_patterns:
 # navigation, reviews and cross-sells, which would swamp the variant overlap
 # with unrelated brand names.
 page_text_chars: 300
+
+# --- P11 LLM adjudication (`specs/adjudicate.md`) -----------------------------
+#
+# Tier 3 runs only when Layer A could not separate the top candidates. Every
+# number here is [PROVISIONAL]: untuned until the gate procedure in
+# `specs/adjudicate.md` §8 has been run on the NIQ network.
+adjudication:
+  # `03` §4 stage 4: "Invoked when runner_up_gap < threshold". The gap is a
+  # difference of raw scores in [0, 1]. 0.15 is a starting point, not a
+  # measurement: on the first live rows the winning gaps ran 0.02-0.4.
+  runner_up_gap_threshold: 0.15
+  # How many of the top usable candidates the model sees. `03` says 3-5.
+  top_k: 4
+  # Per candidate, how much boilerplate-stripped body text goes into its
+  # untrusted block. The title and JSON-LD carry the identity; body text is
+  # mostly navigation and cross-sells, and every character is a token.
+  body_text_chars: 600
+  # The rationale is a citation for stage 7, not chain-of-thought (`04` §7).
+  max_rationale_chars: 400

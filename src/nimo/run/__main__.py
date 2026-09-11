@@ -1,4 +1,4 @@
-"""`uv run python -m nimo.run --sheet dev [--live] [--limit N]` — the batch runner CLI.
+"""`uv run python -m nimo.run --sheet dev [--live] [--limit N] [--adjudicate] [--out-dir D]`
 
 `print` here is the CLI's user-facing output, which `04` §10 permits; nothing
 in the library prints.
@@ -13,6 +13,11 @@ Two modes:
   real search and fetch budget — `--limit N` caps the rows for a trial run.
   Resumable: a killed run skips completed rows on restart, and every registry
   merge is persisted the moment it happens.
+- **`--adjudicate`** (with `--live`): Tier 3 LLM adjudication on rows where
+  Layer A could not separate the top candidates. Needs `CIS_LLM_API_KEY` in
+  `.env` and the NIQ network (`config/models.yaml`). `--out-dir` writes the
+  artifacts beside a baseline run instead of over it, which is how the P11
+  gate is measured (`specs/adjudicate.md` §8).
 
 Batch-level setup (workbook, config, classifier fit, registry index) happens
 once, before any row is touched, and is deliberately **not** wrapped in the
@@ -26,8 +31,9 @@ from pathlib import Path
 from nimo.classify import load_classify_config
 from nimo.classify.model import ModuleClassifier
 from nimo.fetch import Fetcher, default_page_cache, load_fetch_config
+from nimo.llm import LlmBudgetExceeded, LlmClient, LlmCounter, load_llm_config, load_prompt
 from nimo.loader import load_characteristic_rules, load_module_labels, load_rows
-from nimo.match import load_match_config
+from nimo.match import Adjudicator, load_match_config
 from nimo.normalize import normalize_rows
 from nimo.registry import build_index, fit_identity_idf, load_thresholds, read_entities
 from nimo.retrieval import SearxngClient, default_cache, load_retrieval_config
@@ -51,6 +57,17 @@ def main(argv: list[str]) -> int:
     run_id = argv[argv.index("--run-id") + 1] if "--run-id" in argv else f"run-{sheet}"
     live = "--live" in argv
     limit = int(argv[argv.index("--limit") + 1]) if "--limit" in argv else None
+    adjudicate = "--adjudicate" in argv
+    out_dir = Path(argv[argv.index("--out-dir") + 1]) if "--out-dir" in argv else OUT_DIR
+    if adjudicate and not live:
+        print("--adjudicate needs --live: Tier 3 adjudicates fetched candidates.")
+        return 2
+    if adjudicate and not settings.cis_llm_api_key:
+        # `04` §9: validated present at startup, not at the first call.
+        print(
+            "--adjudicate needs CIS_LLM_API_KEY in `.env` (see .env.example, config/models.yaml)."
+        )
+        return 2
 
     rows = load_rows(WORKBOOK, sheet, RETAILERS)
     if limit is not None:
@@ -71,12 +88,13 @@ def main(argv: list[str]) -> int:
     thresholds = load_thresholds()
 
     paths = RunPaths(
-        artifacts=OUT_DIR / "artifacts" / sheet,
-        trace=OUT_DIR / "trace.jsonl",
-        failures=OUT_DIR / "failures.jsonl",
+        artifacts=out_dir / "artifacts" / sheet,
+        trace=out_dir / "trace.jsonl",
+        failures=out_dir / "failures.jsonl",
         config_dir=CONFIG_DIR,
     )
     counter = CacheCounter()
+    llm_counter = LlmCounter()
 
     if not live:
         stages = offline_stages(index, thresholds, classifier)
@@ -104,6 +122,25 @@ def main(argv: list[str]) -> int:
             run_id=run_id,
             entities={entity.entity_id: entity for entity in entities},
         )
+        adjudicator: Adjudicator | None = None
+        if adjudicate:
+            # Imported here and only here: the SDK is the network, and no other
+            # path needs it (`specs/adjudicate.md` §6).
+            from nimo.llm.azure import azure_complete_fn
+
+            llm_config = load_llm_config()
+            assert settings.cis_llm_api_key is not None  # checked above
+            adjudicator = Adjudicator(
+                llm=LlmClient(
+                    config=llm_config,
+                    complete=azure_complete_fn(llm_config, settings.cis_llm_api_key),
+                    cache_dir=CACHE_DIR / "llm",
+                    counter=llm_counter,
+                    retry_prompt=load_prompt("json_retry"),
+                ),
+                prompt=load_prompt("adjudicate"),
+                config=load_match_config(),
+            )
         try:
             stages = live_stages(
                 searx=searx,
@@ -116,8 +153,17 @@ def main(argv: list[str]) -> int:
                 classifier=classifier,
                 writer=writer,
                 cache_counter=counter,
+                adjudicator=adjudicator,
             )
-            summary = run(rows, stages, paths, run_id, cache_counter=counter)
+            summary = run(
+                rows,
+                stages,
+                paths,
+                run_id,
+                cache_counter=counter,
+                llm_counter=llm_counter,
+                abort_on=(LlmBudgetExceeded,),
+            )
         finally:
             searx.close()
             fetcher.close()
@@ -128,6 +174,11 @@ def main(argv: list[str]) -> int:
         if blocked_hosts:
             print(f"hosts that blocked us ({len(blocked_hosts)}): {', '.join(blocked_hosts[:12])}")
         print(f"registry: {len(writer.entities)} entities after this run")
+        if adjudicate:
+            print(
+                f"adjudication: {llm_counter.calls} calls, {llm_counter.cache_hits} cache hits, "
+                f"{llm_counter.rejected_verdicts} verdicts rejected by validation"
+            )
 
     print(format_summary(summary))
     if not live:

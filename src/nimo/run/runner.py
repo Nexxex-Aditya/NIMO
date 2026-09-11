@@ -27,6 +27,7 @@ from nimo.contracts import (
     RunSummary,
     Selection,
 )
+from nimo.llm import LlmCounter
 from nimo.match import ScoredCandidate
 from nimo.normalize import normalize_row
 from nimo.registry import RegistryIndex, RegistryThresholds, lookup
@@ -114,6 +115,7 @@ def _no_selection() -> Selection:
         features=None,
         adjudicated_by_llm=False,
         resolution_tier="tier2_retrieval",
+        adjudication=None,
     )
 
 
@@ -138,11 +140,15 @@ def _selection_from_hit(result: RegistryLookupResult) -> Selection:
         features=None,
         adjudicated_by_llm=False,
         resolution_tier=tier,
+        adjudication=None,
     )
 
 
 def process_row(
-    row: RawRow, stages: Stages, clock: Callable[[], datetime]
+    row: RawRow,
+    stages: Stages,
+    clock: Callable[[], datetime],
+    abort_on: tuple[type[BaseException], ...] = (),
 ) -> RowArtifacts | RowFailure:
     """Drive one row through every stage. Never raises for a per-row problem.
 
@@ -180,6 +186,11 @@ def process_row(
         stage = "classify"
         prediction = stages.classify(query)
     except Exception as error:  # noqa: BLE001 — `04` §4's one sanctioned site
+        if isinstance(error, abort_on):
+            # `05` §3: a spent LLM budget aborts the RUN with a clear failure.
+            # Recording it as one more RowFailure and continuing would fail
+            # every remaining row identically — a throttle in disguise.
+            raise
         return RowFailure(
             row_uid=row.row_uid,
             stage=stage,
@@ -272,6 +283,8 @@ def run(
     run_id: str,
     clock: Callable[[], datetime] | None = None,
     cache_counter: CacheCounter | None = None,
+    llm_counter: LlmCounter | None = None,
+    abort_on: tuple[type[BaseException], ...] = (),
 ) -> RunSummary:
     """Drive every row, skipping completed ones. Returns the run summary.
 
@@ -298,7 +311,7 @@ def run(
             succeeded += 1
             continue
 
-        outcome = process_row(row, stages, tick)
+        outcome = process_row(row, stages, tick, abort_on)
         if isinstance(outcome, RowFailure):
             # `04` §4: a failed row writes NO artifacts. Not a partial set —
             # a later stage reading a half-populated one is how a plausible
@@ -331,8 +344,8 @@ def run(
         # LLM counters are structurally zero until P11. Cache counters come
         # from the stage implementations via `cache_counter` when the caller
         # provides one; the offline stages have no cache to count.
-        llm_calls=0,
-        llm_tokens=0,
+        llm_calls=llm_counter.calls if llm_counter is not None else 0,
+        llm_tokens=llm_counter.tokens if llm_counter is not None else 0,
         cache_hits=cache_counter.hits if cache_counter is not None else 0,
         cache_misses=cache_counter.misses if cache_counter is not None else 0,
         wall_time_s=time.monotonic() - started,
@@ -356,7 +369,7 @@ def format_summary(summary: RunSummary) -> str:
     lines.extend(f"  {tier}: {count}" for tier, count in sorted(summary.tier_counts.items()))
     lines.append(
         f"llm calls: {summary.llm_calls}  tokens: {summary.llm_tokens}  "
-        f"(structurally zero until P11)   "
+        f"(zero unless --adjudicate)   "
         f"page-cache hit/miss: {summary.cache_hits}/{summary.cache_misses}"
     )
     lines.append(f"wall time: {summary.wall_time_s:.1f}s")

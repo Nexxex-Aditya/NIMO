@@ -25,6 +25,11 @@ if TYPE_CHECKING:
     # `curve.predict(score)`; the curve is fitted and loaded elsewhere.
     from nimo.calibrate.isotonic import IsotonicCurve
 
+# The one reason string other modules branch on: calibration bypasses it and
+# adjudication refuses to second-guess it. A constant so a reworded reason
+# cannot silently break either.
+GTIN_ACCEPT_REASON = "gtin_exact: page GTIN equals the query barcode"
+
 
 @dataclass(frozen=True)
 class ScoredCandidate:
@@ -45,7 +50,7 @@ def apply_hard_rules(
     """`(score, rejected, reason)`. `03` §4 stage 4, in its stated order."""
     # 1. GTIN accept — near-decisive, stops everything else.
     if features.barcode_exact is True:
-        return 1.0, False, "gtin_exact: page GTIN equals the query barcode"
+        return 1.0, False, GTIN_ACCEPT_REASON
 
     # 2. GTIN reject — a confirmed different GTIN is a different product,
     #    however similar the text. This is the rule that has to beat text.
@@ -123,11 +128,7 @@ def score_candidate(
     # Hard-rule outcomes bypass the curve: a GTIN accept is 1.0 and a GTIN
     # reject is 0.0 by identity, not by text similarity, and the curve was
     # fitted on the text score alone (`specs/calibrate.md` §1).
-    if (
-        curve is not None
-        and not rejected
-        and reason != "gtin_exact: page GTIN equals the query barcode"
-    ):
+    if curve is not None and not rejected and reason != GTIN_ACCEPT_REASON:
         calibrated = curve.predict(weighted)
     else:
         calibrated = score
@@ -195,6 +196,7 @@ def select(
                 features=None,
                 adjudicated_by_llm=False,
                 resolution_tier="tier2_retrieval",
+                adjudication=None,
             ),
             ranked,
         )
@@ -210,6 +212,7 @@ def select(
             features=best.features,
             adjudicated_by_llm=False,
             resolution_tier="tier2_retrieval",
+            adjudication=None,
         ),
         ranked,
     )

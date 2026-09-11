@@ -4,6 +4,17 @@
 wrongness costs the most. No LLM (that is P11's Layer B), no calibration (P10).
 """
 
+from nimo.match.adjudicate import (
+    DECISIVE_FIELDS,
+    AdjudicationError,
+    Adjudicator,
+    allowed_answers,
+    apply_verdict,
+    candidate_block,
+    query_block,
+    should_adjudicate,
+    top_k,
+)
 from nimo.match.config import CONFIG_PATH, MatchConfig, MatchConfigError, load_match_config
 from nimo.match.features import (
     barcode_exact,
@@ -21,6 +32,7 @@ from nimo.match.features import (
     variant_overlap,
 )
 from nimo.match.score import (
+    GTIN_ACCEPT_REASON,
     ScoredCandidate,
     apply_hard_rules,
     rank_candidates,
@@ -37,6 +49,16 @@ from nimo.match.writeback import (
 )
 
 __all__ = [
+    "DECISIVE_FIELDS",
+    "GTIN_ACCEPT_REASON",
+    "AdjudicationError",
+    "Adjudicator",
+    "allowed_answers",
+    "apply_verdict",
+    "candidate_block",
+    "query_block",
+    "should_adjudicate",
+    "top_k",
     "CONFIG_PATH",
     "MatchConfig",
     "MatchConfigError",

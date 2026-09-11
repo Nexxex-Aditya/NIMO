@@ -1,6 +1,6 @@
 # 03 — Architecture & Design
 
-Version 0.8 — 2026-09-10. Living document. Update on every finding that changes
+Version 0.9 — 2026-09-11. Living document. Update on every finding that changes
 a contract, a stage boundary, or a scoring rule. Change history lives in
 `02-decision-log.md`, not here — this file always reflects current state only.
 
@@ -400,6 +400,13 @@ class MatchFeatures:               # one per candidate — the audit surface
     raw_score: float
     calibrated_prob: float
 
+class AdjudicationVerdict:         # P11 — Tier 3's schema-validated answer, `specs/adjudicate.md` §4
+    choice: int | None             # 1-based index into the evidence pack the model was shown; None == "none of these is the product". NEVER a URL: the model can only point into a list Layer A fixed before it saw anything (`05` §1)
+    decisive_fields: list[str]     # which evidence decided it — "gtin", "size", "title", ... — the citation stage 7 quotes
+    rationale: str                 # short, grounded; capped by config. Not chain-of-thought (`04` §7)
+    prompt_hash: str               # sha256 of the prompt file that produced it — `05` §5 version skew. Set by us, never by the model
+    model: str                     # the pinned model id that answered — `05` §3
+
 class Selection:
     url: str | None                # None == abstained
     page_title: str | None         # see [PROVISIONAL — Q2]
@@ -408,6 +415,7 @@ class Selection:
     features: MatchFeatures | None # None when resolved via registry hit (tier 0/1)
     adjudicated_by_llm: bool
     resolution_tier: Literal["tier0_exact","tier1_ann","tier2_retrieval","tier3_llm"]
+    adjudication: AdjudicationVerdict | None   # set iff adjudicated_by_llm — what the model said and why, for the trace and stage 7
 
 class OutputRow:                   # serializes to qa header exactly, in order
     ITEM_CODE: int
@@ -453,6 +461,17 @@ implementation omitted the field and passed identity text alongside the
 entity, which meant the runner had nothing to pass and **Tier 1 returned a
 miss for every row while the tests, which built the index by hand, passed.**
 An entity must be self-sufficient for its own lookup. See `02-decision-log.md`.
+
+**`AdjudicationVerdict.choice` is an index, not a URL, and that is the
+security property.** `05` §1's table promises that "an LLM can't hallucinate
+a URL that was never a candidate; the set is fixed before the LLM sees
+anything". The contract makes that structural: the model's answer schema has
+no URL field at all — it points into the evidence pack Layer A built, and an
+index outside `1..k` is a typed rejection rather than a selection
+(`specs/adjudicate.md` §4). `prompt_hash` and `model` are set by the
+pipeline after validation, never by the model, so `05` §5's "which prompt
+produced this" is answerable from the trace. `Selection.adjudication` carries
+the verdict because stage 7 needs "which evidence decided it" verbatim.
 
 **`ModulePrediction.nearest_example_row_uid` is the transparency mechanism,
 and it is why stage [5]'s model is a nearest-centroid rather than anything

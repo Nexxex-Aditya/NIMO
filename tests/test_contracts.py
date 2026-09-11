@@ -16,6 +16,7 @@ from pydantic import BaseModel, ValidationError
 
 import nimo.contracts as contracts_module
 from nimo.contracts import (
+    AdjudicationVerdict,
     BlockKey,
     CandidateEvidence,
     CandidateURL,
@@ -219,14 +220,23 @@ MATCH_FEATURES = MatchFeatures(
     calibrated_prob=0.93,
 )
 
+ADJUDICATION_VERDICT = AdjudicationVerdict(
+    choice=2,
+    decisive_fields=["gtin", "size"],
+    rationale="Candidate 2 states EAN 5014697056627 and 100ml; candidate 1 is the 75ml tube.",
+    prompt_hash="9f2c1d3e4b5a69788796a5b4c3d2e1f0",
+    model="hack-fest-gpt-5.6-luna",
+)
+
 SELECTION = Selection(
     url="https://www.boots.com/aquafresh-whitening-100ml",
     page_title="Aquafresh Whitening Toothpaste 100ml | Boots",
     confidence=0.93,
     runner_up_gap=0.41,
     features=MATCH_FEATURES,
-    adjudicated_by_llm=False,
-    resolution_tier="tier2_retrieval",
+    adjudicated_by_llm=True,
+    resolution_tier="tier3_llm",
+    adjudication=ADJUDICATION_VERDICT,
 )
 
 OUTPUT_ROW = OutputRow(
@@ -273,6 +283,7 @@ ALL_MODELS: list[tuple[str, BaseModel]] = [
     ("CandidateURL", CANDIDATE_URL),
     ("CandidateEvidence", CANDIDATE_EVIDENCE),
     ("MatchFeatures", MATCH_FEATURES),
+    ("AdjudicationVerdict", ADJUDICATION_VERDICT),
     ("Selection", SELECTION),
     ("OutputRow", OUTPUT_ROW),
 ]
@@ -307,7 +318,7 @@ QA_HEADER: list[str] = [
 
 def test_every_contract_model_is_covered() -> None:
     """Guards the parametrized list itself against a silently-dropped model."""
-    assert len(ALL_MODELS) == 18
+    assert len(ALL_MODELS) == 19
 
 
 @pytest.mark.parametrize("name,instance", ALL_MODELS, ids=[n for n, _ in ALL_MODELS])
@@ -464,7 +475,7 @@ def test_contracts_match_architecture_section_3_field_for_field() -> None:
     `contracts.py` to match — do not relax the test.
     """
     spec = _parse_architecture_section_3()
-    assert len(spec) == 18, f"expected 18 classes in `03` §3, parsed {len(spec)}"
+    assert len(spec) == 19, f"expected 19 classes in `03` §3, parsed {len(spec)}"
     for class_name, fields in spec.items():
         model = getattr(contracts_module, class_name, None)
         assert model is not None, f"`03` §3 declares {class_name}; contracts.py has no such model"

@@ -24,17 +24,23 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+import structlog
+
 from nimo.classify.model import ModuleClassifier
 from nimo.contracts import CandidateEvidence, CandidateURL, CanonicalEntity, ProductQuery, Selection
 from nimo.extract import extract_evidence
 from nimo.fetch import Fetcher
+from nimo.llm import LlmValidationError
 from nimo.match import (
+    AdjudicationError,
+    Adjudicator,
     MatchConfig,
     ScoredCandidate,
     audit_for,
     build_entity,
     decide,
     select,
+    should_adjudicate,
 )
 from nimo.registry import (
     RegistryIndex,
@@ -53,6 +59,8 @@ from nimo.retrieval import (
     retailer_domain,
 )
 from nimo.run.runner import CacheCounter, Stages
+
+log = structlog.get_logger(__name__)
 
 
 @dataclass
@@ -102,8 +110,19 @@ def live_stages(
     classifier: ModuleClassifier,
     writer: RegistryWriter,
     cache_counter: CacheCounter,
+    adjudicator: Adjudicator | None = None,
 ) -> Stages:
-    """Compose the real stages. Everything network-backed is injected."""
+    """Compose the real stages. Everything network-backed is injected.
+
+    With an `adjudicator`, the match stage runs Tier 3 when Layer A could not
+    separate the top candidates (`specs/adjudicate.md` §1). A verdict the
+    schema rejects — an index outside the pack, or an answer that will not
+    validate twice — is logged and counted, and Layer A's selection stands:
+    `05` §1's table says an injection attempt on the URL is "rejected at the
+    validation gate, never reaches output", which is a validated state to
+    continue from, not a reason to lose the row. A spent budget is not caught
+    here; the runner aborts on it (`05` §3).
+    """
     from nimo.normalize import normalize_row
 
     def retrieve(query: ProductQuery) -> list[CandidateURL]:
@@ -136,6 +155,19 @@ def live_stages(
             query, evidence, match_config, retailer_domain(query.retailer_raw, retailers_path)
         )
         usable = [item for item in ranked if not item.rejected]
+        if adjudicator is not None and should_adjudicate(selection, ranked, match_config):
+            try:
+                selection = adjudicator.adjudicate(query, selection, ranked)
+            except (AdjudicationError, LlmValidationError) as error:
+                adjudicator.llm.counter.rejected_verdicts += 1
+                log.warning(
+                    "adjudication_rejected",
+                    row_uid=query.row_uid,
+                    error_type=type(error).__name__,
+                    message=str(error)[:200],
+                )
+        # Write-back reads the HARD-RULE outcome only (`specs/match.md` §6):
+        # `usable[0]` is Layer A's best, whatever the model said.
         return selection, (usable[0] if usable else None)
 
     return Stages(
