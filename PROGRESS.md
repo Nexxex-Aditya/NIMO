@@ -9,18 +9,15 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P15 (demo) — NOT STARTED
-Last completed milestone: P14 (assembly) — done, gate met (byte-identical
-files, measured). The submission path exists end to end:
-`uv run python -m nimo.run --sheet qa --live` then
-`uv run python -m nimo.assemble --sheet qa` → `data/out/submission_qa.xlsx`.
-P11's delta and P12's per-characteristic accuracy remain unmeasured
-off-network; `src/nimo/llm/azure.py` is the only unverified code.
-Next milestone: P15 (`04` §1: "Runs end-to-end on 10 sample rows") — a
-walkthrough that shows the trace, the registry warm-start on a RE-RUN
-(`specs/registry.md` §3: Tier 0 fires 412/412 on a re-run, 0/412 on a first
-pass), the tier histogram, the reasoning, and the free-engine budget
-honestly. No new pipeline code; a presentation of what exists.
+Phase: ALL PHASES BUILT (P0–P15). Remaining work is measurement and runs,
+not code: (1) let the qa harvest finish, re-run under the 8-stage sequence
+(`--live`, from cache), refit calibration (`python -m nimo.calibrate`),
+assemble (`python -m nimo.assemble --sheet qa`), run the demo live
+(`python -m nimo.demo --sheet qa --rows 10 --live --html`) and the warm
+RE-RUN with a fresh `--out-dir` for the Tier-0 number; (2) on the office
+laptop: `specs/adjudicate.md` §8 and `specs/characteristics.md` §6 — the
+two model-dependent gates — after a first live call verifies
+`src/nimo/llm/azure.py`.
 
 **THE NUMBER THAT MATTERS FOR PLANNING:** the full pipeline works end to end
 (registry write-backs are firing at ~1 in 4 rows on the running harvest). **No paid search key
@@ -62,16 +59,17 @@ Q3]`). **Refit after the full qa harvest:** `uv run python -m nimo.calibrate`
 
 ## Verified state (re-check on resume, don't trust blindly)
 
-Last `make check`: PASS as of the P14 commit. `make` is absent on
+Last `make check`: PASS as of the P15 commit. `make` is absent on
 this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (723 passed)
+  uv run pytest                          -> EXIT 0  (727 passed)
 
 ## Do NOT re-do
 
-- P0–P14: done (P7's recall gate open; P10's curve unfitted; P11's delta and P12's accuracy unmeasured off-network — all stated), gates verified by execution where they can be, committed.
+- P0–P15: built (P7's recall gate open; P10's curve fitted interim; P11's delta and P12's accuracy unmeasured off-network — all stated), gates verified by execution where they can be, committed.
+- **P15: the demo renders the artifacts; it never computes.** Don't add a presentation path that could drift from the runner.
 - **P14: passthrough columns are the WORKBOOK's bytes, never `RawRow`'s repaired ones.** A failed row is blank in every output column. Identifier columns are text cells. The xlsx is byte-identical only because of the deterministic repack — openpyxl re-stamps `dcterms:modified` inside `save()`; don't remove `_repack_deterministic`.
 - **P13: REASONING is COMPOSED from the typed record, never generated.** `03` §1 and §4 stage 7 say so now. Don't add a model call that can introduce claims; a style pass, if ever wanted, goes after the composed text and never replaces it. The runner has EIGHT stages.
 - **P12: the applicability gate is OURS, applied before and after the model.** `values` always has all 13 keys; a volunteered non-applicable value is dropped. Closed values validate per `&` component — the validator reproduces `01` §11's exact counts on dev (1,719 / 2 GLASS / 187 joined), pinned. Don't switch to whole-string.

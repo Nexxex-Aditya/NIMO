@@ -2542,6 +2542,27 @@ in `select`); `src/nimo/run/live.py` (`curve`, `tau_abstain`),
 **Status:** standing — HARD-20%. Curve fitted (interim); abstention OFF.
 
 
+## 2026-09-11 — P15 demo: a renderer over the artifacts, not a second pipeline
+**Decision:** `specs/demo.md`; `src/nimo/demo/` — `python -m nimo.demo`
+drives the ordinary runner over the first N rows and renders one card per
+row from the eight artifact trees, a summary, and optionally a
+self-contained HTML page. It computes nothing new.
+**Why:** the brief scores "clear and transparent reasoning" and `03` §1's
+argument for a pipeline over an agent was per-stage traceability. The
+honest demo of that is to show the trace, stage by stage, for ten rows —
+not a separate presentation path that could drift from what the pipeline
+actually did. Reusing the runner also means the demo is resumable and
+free on rows already processed, and that its ten rows are ten rows of the
+submission, not a curated set. The summary prints the warm-start caveat
+every time (`specs/registry.md` §3: Tier 0 fires 0/412 on a first pass and
+412/412 on a re-run), because a tier histogram with a zero in it needs the
+sentence next to it, not a hope that nobody asks.
+**Affects:** new `specs/demo.md`, new `src/nimo/demo/` (`cards.py`,
+`__main__.py`), new `tests/demo/` (4). `04-build-standards.md` §1 P15 row.
+**Status:** standing — the live `qa` walkthrough runs once the harvest has
+finished writing the artifact tree.
+
+
 ---
 
 # Open questions — resolve with organizers
