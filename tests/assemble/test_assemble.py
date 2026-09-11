@@ -190,6 +190,21 @@ def test_a_non_applicable_characteristic_value_raises(
     assert module  # the module was real; only the value was out of place
 
 
+def test_a_misaligned_artifact_raises(tree: Path, rules: list[CharacteristicRule]) -> None:
+    """`01` §14 at the output boundary: an artifact whose keys differ from
+    the sheet row's must never attach its answer to that row."""
+    path = artifact_path(tree / "artifacts", "normalize", "dev:1")
+    original = path.read_text(encoding="utf-8")
+    data = json.loads(original)
+    data["nan_key"] = data["nan_key"] + 1
+    try:
+        path.write_text(json.dumps(data), encoding="utf-8")
+        with pytest.raises(AssemblyError, match="misaligned"):
+            assembled(tree, rules)
+    finally:
+        path.write_text(original, encoding="utf-8")
+
+
 def test_product_url_field_switch_emits_the_title(
     tree: Path, rules: list[CharacteristicRule]
 ) -> None:

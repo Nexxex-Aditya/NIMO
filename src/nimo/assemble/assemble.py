@@ -31,6 +31,7 @@ from nimo.contracts import (
     CharacteristicValues,
     ModulePrediction,
     OutputRow,
+    ProductQuery,
     Reasoning,
     RegistryLookupResult,
     RowFailure,
@@ -233,6 +234,16 @@ def _outputs_for(
     for model in (prediction, values, reasoning):
         if model.row_uid != row_uid:
             raise AssemblyError(f"{row_uid}: artifact carries row_uid {model.row_uid!r} — misfiled")
+    query = ProductQuery.model_validate_json(
+        artifact_path(root, "normalize", row_uid).read_text(encoding="utf-8")
+    )
+    if (query.nan_key, query.item_code) != (inputs["NAN_KEY"], inputs["ITEM_CODE"]):
+        # A misfiled or stale artifact would attach one product's answer to
+        # another row — the `01` §14 collision, at the output boundary.
+        raise AssemblyError(
+            f"{row_uid}: artifact keys ({query.nan_key}, {query.item_code}) differ from the "
+            f"sheet row's ({inputs['NAN_KEY']}, {inputs['ITEM_CODE']}) — misaligned tree"
+        )
 
     # `03` §4 stage 8 validation — belt and braces over what P5/P12 wrote.
     module = prediction.module
