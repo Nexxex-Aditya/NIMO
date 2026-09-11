@@ -79,15 +79,33 @@ def applicability_report(
 
 @dataclass(frozen=True)
 class CharacteristicAccuracy:
+    """Two denominators, both printed, neither instead of the other.
+
+    `applicable_rows` is the SUBMISSION view: every row where the
+    characteristic applies under the true module, a missing row counted
+    wrong because the sheet would be blank there. `ran_rows` is the MODEL
+    view: only rows the pipeline produced an artifact for. On a complete
+    run they coincide; on a partial run (92/412 rows, office 2026-09-12)
+    the first read 14.7% and the second 76% — and only the second says
+    anything about the extractor.
+    """
+
     characteristic: str
     applicable_rows: int  # under the TRUE module
+    ran_rows: int  # of those, rows with a characteristics artifact at all
     predicted_rows: int  # of those, rows the pipeline produced a value for
-    exact: int  # normalised string equality
+    exact: int  # normalised string equality, over applicable_rows
     component_set: int  # `&` components equal as a set — order-insensitive
+    exact_ran: int  # the same two counts, over ran_rows only
+    component_set_ran: int
 
     @property
     def accuracy(self) -> float:
         return self.exact / self.applicable_rows if self.applicable_rows else 0.0
+
+    @property
+    def accuracy_ran(self) -> float:
+        return self.exact_ran / self.ran_rows if self.ran_rows else 0.0
 
 
 def accuracy_report(
@@ -102,31 +120,41 @@ def accuracy_report(
     if not len(true_modules) == len(labels) == len(predictions):
         raise ValueError("modules, labels and predictions must be positionally aligned")
     applicable_n: Counter[str] = Counter()
+    ran_n: Counter[str] = Counter()
     predicted_n: Counter[str] = Counter()
     exact: Counter[str] = Counter()
     component: Counter[str] = Counter()
+    exact_ran: Counter[str] = Counter()
+    component_ran: Counter[str] = Counter()
     for module, label, prediction in zip(true_modules, labels, predictions, strict=True):
         for rule in applicable_rules(rules, module):
             name = rule.characteristic
             applicable_n[name] += 1
+            ran = prediction is not None
+            ran_n[name] += ran
             truth = label.get(name)
             guess = prediction.values.get(name) if prediction is not None else None
             if guess is not None:
                 predicted_n[name] += 1
-            if guess == truth:
-                exact[name] += 1
+            is_exact = guess == truth
             if guess is not None and truth is not None:
-                if set(guess.split(" & ")) == set(truth.split(" & ")):
-                    component[name] += 1
-            elif guess is None and truth is None:
-                component[name] += 1
+                is_set = set(guess.split(" & ")) == set(truth.split(" & "))
+            else:
+                is_set = guess is None and truth is None
+            exact[name] += is_exact
+            component[name] += is_set
+            exact_ran[name] += is_exact and ran
+            component_ran[name] += is_set and ran
     return [
         CharacteristicAccuracy(
             characteristic=name,
             applicable_rows=applicable_n[name],
+            ran_rows=ran_n[name],
             predicted_rows=predicted_n[name],
             exact=exact[name],
             component_set=component[name],
+            exact_ran=exact_ran[name],
+            component_set_ran=component_ran[name],
         )
         for name in CHARACTERISTIC_COLUMNS
         if applicable_n[name]
@@ -146,16 +174,43 @@ def format_applicability(report: ApplicabilityReport, *, source: str) -> str:
 
 
 def format_accuracy(rows: list[CharacteristicAccuracy]) -> str:
+    """Two views per characteristic. `exact` and `set` are over `n` (the
+    submission view); `exact/ran` and `set/ran` are over `ran` (the model
+    view). They coincide on a complete run and the footer says which."""
     lines = ["per-characteristic accuracy over rows where it applies under the TRUE module:"]
-    lines.append(f"  {'characteristic':52s} {'n':>4s} {'answered':>8s} {'exact':>6s} {'set':>6s}")
+    lines.append(
+        f"  {'characteristic':48s} {'n':>4s} {'ran':>4s} {'ans':>4s} "
+        f"{'exact':>6s} {'set':>6s} {'exact/ran':>9s} {'set/ran':>8s}"
+    )
     for row in rows:
+        set_ran = row.component_set_ran / row.ran_rows if row.ran_rows else 0.0
         lines.append(
-            f"  {row.characteristic:52s} {row.applicable_rows:4d} {row.predicted_rows:8d} "
-            f"{row.accuracy:6.1%} {row.component_set / row.applicable_rows:6.1%}"
+            f"  {row.characteristic:48s} {row.applicable_rows:4d} {row.ran_rows:4d} "
+            f"{row.predicted_rows:4d} {row.accuracy:6.1%} "
+            f"{row.component_set / row.applicable_rows:6.1%} {row.accuracy_ran:9.1%} "
+            f"{set_ran:8.1%}"
         )
     total = sum(r.applicable_rows for r in rows)
+    ran = sum(r.ran_rows for r in rows)
     hits = sum(r.exact for r in rows)
-    lines.append(
-        f"  micro accuracy: {hits}/{total} = {hits / total:.1%}" if total else "  (no rows)"
-    )
+    hits_ran = sum(r.exact_ran for r in rows)
+    if not total:
+        lines.append("  (no rows)")
+    else:
+        lines.append(
+            f"  micro accuracy, submission view (missing rows wrong): "
+            f"{hits}/{total} = {hits / total:.1%}"
+        )
+        lines.append(
+            f"  micro accuracy, model view (rows that ran only):      "
+            f"{hits_ran}/{ran} = {hits_ran / ran:.1%}"
+            if ran
+            else "  micro accuracy, model view: no rows ran"
+        )
+        if ran < total:
+            lines.append(
+                "  the two differ because the run was PARTIAL — only the model view says "
+                "anything about the extractor; the submission view is what a sheet from "
+                "this tree would score."
+            )
     return "\n".join(lines)

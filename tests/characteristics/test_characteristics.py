@@ -452,6 +452,39 @@ def test_accuracy_report_scores_exact_and_component_set(rules: list[Characterist
     assert rows["GLOBAL_IF_WITH_FLUORIDE"].exact == 0
     assert rows["GLOBAL_PACKAGING"].exact == 1  # both None
     assert "micro accuracy" in format_accuracy(list(rows.values()))
+    # A complete run: the two views coincide, and the footer does not warn.
+    fluoride = rows["GLOBAL_IF_WITH_FLUORIDE"]
+    assert (fluoride.ran_rows, fluoride.exact_ran) == (1, 0)
+    assert "PARTIAL" not in format_accuracy(list(rows.values()))
+
+
+def test_a_partial_run_reports_both_views_and_says_so(rules: list[CharacteristicRule]) -> None:
+    """Office 2026-09-12: 92 of 412 rows ran and the single number read
+    14.7%; over the rows that ran it was 76%. Both are printed, labelled."""
+    label = dict.fromkeys(CHARACTERISTIC_COLUMNS)
+    label["GLOBAL_IF_WITH_FLUORIDE"] = "WITH FLUORIDE"
+    values = dict.fromkeys(CHARACTERISTIC_COLUMNS)
+    values["GLOBAL_IF_WITH_FLUORIDE"] = "WITH FLUORIDE"
+    right = CharacteristicValues(
+        row_uid="dev:0",
+        module=PASTE,
+        values=values,
+        applicable=["GLOBAL_IF_WITH_FLUORIDE"],
+        rejected={},
+        source="llm",
+        prompt_hash="h",
+        model="m",
+    )
+    rows = {
+        r.characteristic: r
+        for r in accuracy_report(rules, [PASTE, PASTE], [label, label], [right, None])
+    }
+    fluoride = rows["GLOBAL_IF_WITH_FLUORIDE"]
+    assert (fluoride.applicable_rows, fluoride.ran_rows, fluoride.predicted_rows) == (2, 1, 1)
+    assert (fluoride.exact, fluoride.exact_ran) == (1, 1)
+    assert fluoride.accuracy == 0.5 and fluoride.accuracy_ran == 1.0
+    text = format_accuracy(list(rows.values()))
+    assert "submission view" in text and "model view" in text and "PARTIAL" in text
 
 
 def test_a_missing_prediction_counts_as_wrong(rules: list[CharacteristicRule]) -> None:
