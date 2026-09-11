@@ -2770,6 +2770,58 @@ fixtures, `04-build-standards.md` §5, `docs/06-office-runbook.md` §2.
 parameter; if it 400s on `max_tokens`, flip `llm_max_tokens_param`.
 
 
+## 2026-09-12 — Second live call: the pinned model is a reasoning model; a cap hit is now `LlmTruncated`, and reasoning tokens are measured
+**Decision:** The output cap `llm_max_output_tokens` rises from 1024 to
+4096; the Azure adapter's response reading is factored into a pure
+`read_response()` that raises a typed `LlmTruncated` on
+`finish_reason == "length"` (never retried — the fix is config, not a second
+identical call) and `LlmError` on `content_filter`; `LlmResponse` carries
+`reasoning_tokens` when the gateway reports
+`completion_tokens_details.reasoning_tokens`, logged on every `llm_call` and
+stored in the cache entry; a new `llm_reasoning_effort` switch
+(`null | minimal | low | medium | high`, default `null` = not sent) goes out
+as `reasoning_effort` via `model_extras`; the ping uses the configured cap
+instead of its own 64. The `max_tokens` field name was accepted by the
+gateway, so `llm_max_tokens_param` stays `max_tokens`.
+**Why:** measured on the office laptop after the temperature fix. The
+request succeeded — prompt 41 tokens, **completion 64 tokens, content
+empty** — and the ping's cap was exactly 64. A model that spends its whole
+output allowance and writes nothing is a model that reasons before it
+writes and bills the reasoning inside `completion_tokens`: GPT-5-family
+behaviour, now confirmed for `hack-fest-gpt-5.6-luna`. Three consequences,
+each handled rather than noted: (1) the adapter was turning that into `""`,
+which `complete_json` reported as "Invalid JSON: EOF" and, with a retry
+prompt configured, would have re-asked with the same cap for the same empty
+answer — a wasted call and a misleading error, the plausible-wrong-symptom
+shape `05` §5 names; `finish_reason` is the SDK's own signal
+(`CompletionsFinishReason.TOKEN_LIMIT_REACHED`, verified against 1.0.0b9)
+and is now read. (2) 1024 was sized for a model that writes what it is
+asked and nothing else; the pipeline's JSON answers are 50-300 visible
+tokens and the reasoning in front of them is unmeasured, so 4096 is a room-
+to-measure value, not a tuned one — the first 20-row office run reports
+`reasoning_tokens` per call and sizes it properly. (3) The per-run token
+budget (2M) was projected at ~1.7M for 412 rows without reasoning tokens;
+the runbook now projects it from the 20-row run and raises it from that
+measurement if needed, distinguishing "the cap was sized for the wrong kind
+of model" from "pathological retries", which is what the abort exists for.
+`reasoning_effort` is added unverified against this gateway (a 400 naming
+the field means unsupported) because it is the cheaper lever if reasoning
+dominates the budget; it is off by default so the first run measures the
+model's own behaviour. Verified before deciding: the SDK's usage model keeps
+unknown keys (`usage.get("completion_tokens_details")` works), the finish
+reason is an enum with `"length"` and `"content_filter"` members, and empty
+content arrives as `""` or `None` — all exercised in `tests/llm/`.
+**Affects:** `config/models.yaml`, `src/nimo/llm/config.py`
+(`ReasoningEffort`, `_reasoning_effort`), `client.py` (`LlmTruncated`,
+`LlmResponse.reasoning_tokens`, log + cache), `azure.py` (`read_response`,
+`_reasoning_tokens`, `model_extras`), `__init__.py`, `__main__.py` (ping
+cap + hint), `tests/llm/test_llm.py` (+4), fixtures in `tests/match/` and
+`tests/characteristics/`, `specs/adjudicate.md` §6/§7,
+`docs/06-office-runbook.md` §2-§4 and the symptom table.
+**Status:** standing — the next `--ping` reports the reasoning share; the
+20-row run sizes the cap and the budget from it.
+
+
 ---
 
 # Open questions — resolve with organizers

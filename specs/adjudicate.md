@@ -146,15 +146,18 @@ should import from `match/`. `tests/llm/` mirrors it (`04` §2).
 
 - `config.py` — `LlmConfig` from `config/models.yaml` (provider, model,
   endpoint, api_version, temperature, max output tokens, timeout, per-run
-  token and call budgets). Refuses `model` values of `latest` or empty
-  (`05` §3). `temperature` must be `0` (`04` §5).
+  token and call budgets, `llm_max_tokens_param`, `llm_reasoning_effort`).
+  Refuses `model` values of `latest` or empty (`05` §3). `temperature` must
+  be `0` or `null` (`04` §5; `null` = not sent — the pinned model rejects 0,
+  measured 2026-09-12, and determinism rests on the cache).
 - `prompts.py` — `load_prompt(name)` → `PromptTemplate(system, user_template,
   prompt_hash)`; `render(template, **fields)` per §3.
 - `untrusted.py` — `delimit(text, *, candidate, field)` per §2, and the
   standing instruction text the system prompt embeds.
 - `client.py` — `LlmCall` (model, system, user, temperature, max_tokens,
   prompt_hash), `LlmResponse` (text, prompt_tokens, completion_tokens,
-  from_cache), `CompleteFn = Callable[[LlmCall], LlmResponse]` (the injected
+  from_cache, reasoning_tokens — the hidden share of `completion_tokens`
+  when the gateway reports it), `CompleteFn = Callable[[LlmCall], LlmResponse]` (the injected
   network seam — same pattern as `SearchFn`), and `LlmClient`:
   - **cache-first**, key `sha256(model + system + user + temperature +
     max_tokens)` (`04` §5), one JSON file per call under `data/cache/llm/`,
@@ -167,11 +170,17 @@ should import from `match/`. `tests/llm/` mirrors it (`04` §2).
   - `complete_json(call, model_type)` — the §4 stage-1 validation with the
     one retry.
 - `azure.py` — `azure_complete_fn(config, api_key) -> CompleteFn`. The only
-  code that imports `azure.ai.inference`. `temperature=0`, `max_tokens`,
-  `response_format="json_object"`, and the request/response fields read off
-  `ChatCompletions.choices[0].message.content` and `.usage` — verified
-  against the installed SDK's signatures (1.0.0b9, `py.typed`), not from
-  memory. **Not exercised by any test**; verified on-network per §0.
+  code that imports `azure.ai.inference`. `temperature` only when configured,
+  the output cap under `llm_max_tokens_param`, `reasoning_effort` only when
+  configured, `response_format="json_object"`. `read_response(response,
+  call)` reads `choices[0]` and `usage` and is **pure and tested against
+  constructed `ChatCompletions` objects**: `finish_reason == "length"` raises
+  `LlmTruncated` (measured 2026-09-12 — the pinned model's hidden reasoning
+  tokens count against the cap, so a cap hit is empty content, and retrying
+  it identically would be a wasted call); `content_filter` raises `LlmError`;
+  `completion_tokens_details.reasoning_tokens` is carried when reported. Only
+  the network call around it is unexercised by tests; verified on-network
+  per §0 (first live call 2026-09-12).
 
 The API key comes from `settings.cis_llm_api_key` (`.env`), validated present
 at startup **only when adjudication is requested** (`--adjudicate`), so the
@@ -213,7 +222,9 @@ delta NOT measured".
 - client: cache hit issues no call and is byte-identical; key changes with
   model/prompt/params; budget abort *before* the call; invalid JSON → one
   retry with the error appended → typed failure; second attempt valid →
-  accepted; `model: latest` refused at config load; temperature ≠ 0 refused.
+  accepted; `model: latest` refused at config load; temperature ≠ 0/null
+  refused; an unknown `llm_reasoning_effort` refused; a cap hit is
+  `LlmTruncated` with the fix named; reasoning tokens round-trip the cache.
 
 `tests/match/test_adjudicate.py`:
 - `should_adjudicate`: each of §1's four conditions, individually;

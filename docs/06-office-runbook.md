@@ -50,9 +50,16 @@ Good:
 ```
 resolves : ['10.249.224.116']
 key      : present
+... [info] llm_call completion_tokens=M model=... prompt_tokens=N reasoning_tokens=R
 call     : OK  ok=True  model_seen='...'
-tokens   : prompt N, completion M
+tokens   : prompt N, completion M (...)
 ```
+
+**Write down `R`** (or `None` if the gateway does not report it). The model
+is a reasoning model: it thinks before it writes, and the thinking is billed
+inside `completion_tokens` and counts against the output cap. `R` on a
+trivial prompt is the floor every pipeline call pays; it sizes
+`llm_max_output_tokens` (4096) and the run budget (step 4).
 
 This is the first time `src/nimo/llm/azure.py` has ever executed against
 its endpoint. If it says `FAILED — ServiceRequestTimeoutError`, you are not
@@ -61,7 +68,13 @@ key or the auth pattern is wrong — `config/models.yaml` documents the
 double-pass the onboarding notebook used; try removing the explicit header
 in `azure.py` (the SDK already sends `Authorization: Bearer`). If it says
 `(400) ... 'temperature' does not support 0.0` you are on a checkout older
-than 2026-09-12 — `git pull`. If it says `(400) ... max_tokens` /
+than 2026-09-12 — `git pull`. If it says `LlmValidationError ... Invalid
+JSON: EOF ... input_value=''` you are on the second-oldest checkout of the
+same day — also `git pull` (the cap was 64 tokens and the model's reasoning
+consumed all of it). If it says `LlmTruncated`, the 4096 cap is still not
+enough: set `llm_reasoning_effort: low` in `config/models.yaml` and rerun; if
+that 400s on the field name, raise `llm_max_output_tokens` to 8192 instead.
+If it says `(400) ... max_tokens` /
 `max_completion_tokens`, set `llm_max_tokens_param: max_completion_tokens`
 in `config/models.yaml` and rerun. Any other error: send me the line.
 
@@ -72,7 +85,13 @@ uv run python -m nimo.run --sheet qa --live --characteristics --limit 20 --out-d
 ```
 
 Good: `rows: 20  succeeded: 20  failed: 0`, `model: 20 calls`, and in the
-log a few `llm_call` lines with token counts in the low thousands. Look
+log a few `llm_call` lines with token counts in the low thousands. **Note
+the `tokens` figure in the summary — it is the input to step 4's budget
+arithmetic.** If rows fail at `characteristics` with `LlmTruncated`, the
+reasoning is longer on real prompts than on the ping: set
+`llm_reasoning_effort: low` (or raise `llm_max_output_tokens`) and rerun —
+the runner resumes, the failed rows are re-asked, the succeeded ones are not.
+Look
 for `characteristic_rejected` warnings: a handful is normal (the validator
 refusing a value outside the vocabulary and retrying once); every row
 rejecting is a prompt problem — send me the log.
@@ -122,10 +141,15 @@ Good: the evaluate output ends with a per-characteristic table and a
 `micro accuracy: H/T = P%` line. There is no target number — this is the
 first measurement. Copy the whole table into the report back.
 
-Budget: `config/models.yaml` caps a run at 5000 calls / 2M tokens; 412 rows
-is ~412 calls and ~1.7M tokens. If the runner stops with
-`LlmBudgetExceeded`, that is the abort working — tell me, do not raise the
-cap.
+Budget: `config/models.yaml` caps a run at 5000 calls / 2M tokens. Before
+this run, project it from step 3: `tokens` from the 20-row summary × 20.6
+(= 412/20). The ~1.7M estimate in the earlier version of this page assumed
+no reasoning tokens; a reasoning model may double it. **If the projection
+exceeds 2M, raise `llm_max_tokens_per_run` to ~1.5× the projection** — that
+is a measured change, not a blind one — and note the number in the report.
+If the runner then stops with `LlmBudgetExceeded` anyway, that is the abort
+working (pathological retries) — tell me, do not raise it again; the run is
+resumable, so nothing completed is lost.
 
 ## 5. The submission run (30–45 minutes, unattended)
 
@@ -166,5 +190,8 @@ Commit `data/registry/` and `data/calibration/` if they changed; leave
 | rows fail at `retrieve` | search cache missing and no SearxNG | copy `data/cache/search/`, or `docker compose up -d searxng` |
 | rows fail at `fetch` en masse | no internet for retailers | check proxy; the page cache avoids this entirely |
 | `characteristic_rejected` on most rows | prompt/vocabulary mismatch | send the log |
-| `LlmBudgetExceeded` | pathological retries | send the log; do not raise the cap |
+| `LlmValidationError … input_value=''` | old checkout (64-token ping cap) | `git pull` (fixed 2026-09-12) |
+| `LlmTruncated` | the model's reasoning ate the output cap | `llm_reasoning_effort: low`, else raise `llm_max_output_tokens` (`config/models.yaml`) |
+| `LlmBudgetExceeded` before the step-4 projection | pathological retries | send the log; do not raise the cap |
+| `LlmBudgetExceeded` at the projected size | cap sized for a non-reasoning model | raise `llm_max_tokens_per_run` to 1.5× the projection; rerun (resumes) |
 | values look plausible but wrong | the real P12 finding | the `dev` accuracy table is the evidence; send it |
