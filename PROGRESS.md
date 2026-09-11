@@ -30,9 +30,16 @@ say plainly that calibration cannot be fitted yet — not invent one.
 - Write-back is GTIN-accept-only. The `calibrated_prob >= tau_merge` trigger
   waits for a real calibration.
 
-**For the runner (P6a wiring of P7→P8→P9): `CandidateEvidence.url` MUST be the
-canonical candidate URL**, never the fetcher's post-redirect `final_url`. The
-first gate run reported 0/5 on exactly that mismatch (`www.`).
+**The full pipeline is now wired and runs live** (`uv run python -m nimo.run
+--sheet qa --live --limit N`). 5 qa rows: 5/5 succeeded, 40 fetches, 148s,
+resumable. Registry write-back is persisted per merge; none has fired yet
+because no fetched page carried a matching GTIN.
+
+**Next pass on retrieval quality, in order of evidence:**
+- Amazon SEARCH LISTINGS (`/s?k=...`) get selected as product pages. A
+  listing-URL demotion, like `bundle`/`refill`, is the obvious rule.
+- S2 (barcode+brand) measured 54% brand-signal vs S1 19% and S3 15% on live
+  qa rows. Strategy order is unchanged pending a run over more rows.
 
 ## Carried-forward work, explicitly not done
 
@@ -60,7 +67,7 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (562 passed)
+  uv run pytest                          -> EXIT 0  (567 passed)
 
 ## Do NOT re-do
 
@@ -91,6 +98,11 @@ this machine; ran its four commands directly per `04` §11:
 - **P6: Tier 0 fires 0/412 in a single pass over this dataset** (0 shared
   dev/qa barcodes, 0 duplicates within qa) and 412/412 on a re-run. That is
   the warm-start property working, not a bug. Demo it as a re-run.
+- **P7: `startpage` DOES NOT EXIST in this SearxNG build.** SearxNG silently
+  falls back to its defaults on an unknown engine name; the client now raises
+  on any result tagged with an unrequested engine. Real engines, measured with
+  tags verified: `google cse` 87%, `duckduckgo` 82%, `brave` 95% when not
+  suspended. Check names against `GET /config` before adding one.
 - **P7: NFKC alone does NOT fold the lookalike hyphen.** Measured:
   `normalize("NFKC", "‑")` -> `‐`, still non-ASCII. `01` §13 and the
   first spec draft both assumed it did. An explicit dash-fold table plus

@@ -240,7 +240,7 @@ cause the blocking it was measuring:
 | engine | blocked | results/query | relevant |
 |---|---|---|---|
 | **brave** | 0/4 | 20.0 | **95%** |
-| **startpage** | 0/4 | 34.8 | **91%** |
+| ~~startpage~~ | — | — | **does not exist in this build** — the 91% recorded here was the default fallback set, see §5a.5c |
 | ~~bing~~ | 0/4 | 10.0 | 25% — **removed, see §5a.5b: answers a different query entirely** |
 | mojeek | 0/4 | 0.0 | — (enabled; returns nothing for UK retail) |
 | duckduckgo | **4/4** | — | CAPTCHA |
@@ -367,6 +367,20 @@ against, `04` §6 forbids network in tests, and a client written against
 documentation rather than a live endpoint is precisely the class of
 fabricated-but-plausible code that produced the invented Docker tag earlier in
 this project. `config/retrieval.yaml` records the four steps to add one.
+
+### 5a.5c Correction — `startpage` was never an engine
+
+There is no engine called `startpage` in this SearxNG build. SearxNG does not
+error on an unknown engine name; it **silently falls back to its default
+set**, Bing included. So the "startpage: 91% relevant" row above measured the
+fallback set and recorded it under the wrong name, and for the whole time it
+was configured the pipeline queried `[brave] + defaults`. That is why Bing's
+junk survived being removed from config.
+
+Fixed structurally: `_assert_engines_honoured` raises if any result carries
+an engine tag that was not requested. Re-measured with tags verified:
+**`google cse` 87% (60/60 tagged), `duckduckgo` 82% (40/40)**, brave
+suspended from probing, mojeek 0%. `engines: [google cse, duckduckgo, brave]`.
 
 ## 6. Merging and the candidate cap
 

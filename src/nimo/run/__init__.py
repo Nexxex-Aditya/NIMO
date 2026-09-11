@@ -14,11 +14,12 @@ from nimo.run.artifacts import (
     write_artifact,
 )
 from nimo.run.runner import (
+    CacheCounter,
     RowArtifacts,
     RunPaths,
     Stages,
-    default_stages,
     format_summary,
+    offline_stages,
     process_row,
     run,
 )
@@ -26,6 +27,7 @@ from nimo.run.runner import (
 __all__ = [
     "STAGE_SEQUENCE",
     "RowArtifacts",
+    "CacheCounter",
     "RunPaths",
     "Stages",
     "artifact_filename",
@@ -33,7 +35,7 @@ __all__ = [
     "clear_artifacts",
     "completed_row_uids",
     "config_hash",
-    "default_stages",
+    "offline_stages",
     "format_summary",
     "is_row_complete",
     "process_row",

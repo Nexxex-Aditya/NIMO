@@ -301,8 +301,12 @@ def test_shipped_engines_exclude_the_captcha_prone_ones() -> None:
     partway through a 400-row run is worse than one that never answered,
     because the run looks like it worked."""
     engines = set(load_retrieval_config().engines)
-    assert engines == {"brave", "startpage"}
-    assert not engines & {"google", "duckduckgo", "qwant"}
+    assert engines == {"google cse", "duckduckgo", "brave"}
+    assert "startpage" not in engines, (
+        "There is no engine called `startpage` in this SearxNG build. Configuring it made "
+        "SearxNG silently fall back to its defaults (Bing included) for days, and a probe "
+        "scored that fallback set under Startpage's name. Names must match `GET /config`."
+    )
     assert "bing" not in engines, (
         "Bing was measured returning results for an entirely different query — MIT AI news "
         "for a toothpaste search, akinator.com for a barcode — while reporting as healthy. "
@@ -365,3 +369,52 @@ def test_brand_signal_handles_multiword_brands_and_empties() -> None:
     # than pretending the signal is perfect.
     assert brand_signal_rate([hit], "HUMBLE CO.") == 1.0
     assert brand_signal_rate([hit], "") == 0.0
+
+
+def test_results_from_an_unrequested_engine_are_refused() -> None:
+    """**The silent fallback that hid two phantom measurements.** SearxNG
+    does not error on an unknown engine name; it quietly uses its defaults.
+    `engines=startpage` (nonexistent) returned Bing/DDG/Google-CSE results for
+    days, tagged with their real engines — so the fallback is detectable, and
+    a client that checks the tags cannot be fooled by it."""
+    config = RetrievalConfig(**{**CONFIG.__dict__, "engines": ("startpage",)})
+    client = SearxngClient(
+        base_url="http://searxng.test",
+        config=config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda r: httpx.Response(
+                    200,
+                    json={"results": [{"url": "https://boots.com/a", "engine": "bing"}]},
+                )
+            )
+        ),
+        breaker=EngineBreaker(failure_threshold=3, cooldown_s=900.0),
+        clock=lambda: 0.0,
+    )
+    with pytest.raises(SearchError, match="not requested"):
+        client.search(SearchQuery("S3", "x"), limit=8)
+
+
+def test_results_from_requested_engines_pass() -> None:
+    config = RetrievalConfig(**{**CONFIG.__dict__, "engines": ("google cse", "duckduckgo")})
+    client = SearxngClient(
+        base_url="http://searxng.test",
+        config=config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(
+                lambda r: httpx.Response(
+                    200,
+                    json={
+                        "results": [
+                            {"url": "https://boots.com/a", "engine": "google cse"},
+                            {"url": "https://boots.com/b", "engine": "duckduckgo"},
+                        ]
+                    },
+                )
+            )
+        ),
+        breaker=EngineBreaker(failure_threshold=3, cooldown_s=900.0),
+        clock=lambda: 0.0,
+    )
+    assert len(client.search(SearchQuery("S3", "x"), limit=8)) == 2

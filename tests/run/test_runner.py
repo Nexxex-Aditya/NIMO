@@ -7,6 +7,7 @@ state behind.
 
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,8 +17,8 @@ from nimo.classify import load_classify_config
 from nimo.classify.model import ModuleClassifier
 from nimo.contracts import ProductQuery, RawRow, RegistryLookupResult, RowFailure
 from nimo.loader import load_characteristic_rules, load_module_labels, load_rows
-from nimo.normalize import normalize_row, normalize_rows
-from nimo.registry import build_index, fit_identity_idf, load_thresholds, lookup
+from nimo.normalize import normalize_rows
+from nimo.registry import build_index, fit_identity_idf, load_thresholds
 from nimo.run import (
     STAGE_SEQUENCE,
     RunPaths,
@@ -27,6 +28,7 @@ from nimo.run import (
     config_hash,
     format_summary,
     is_row_complete,
+    offline_stages,
     process_row,
     run,
 )
@@ -56,12 +58,7 @@ def stages(dev_rows: list[RawRow]) -> Stages:
         queries, load_module_labels(WORKBOOK, "dev", rules), load_classify_config()
     )
     index = build_index([], fit_identity_idf(queries))
-    thresholds = load_thresholds()
-    return Stages(
-        normalize=normalize_row,
-        registry=lambda query: lookup(query, index, thresholds),
-        classify=classifier.predict,
-    )
+    return offline_stages(index, load_thresholds(), classifier)
 
 
 def paths_in(tmp_path: Path) -> RunPaths:
@@ -97,34 +94,53 @@ def test_row_uid_survives_the_filename_round_trip(
 
 
 def exploding(stage: str, base: Stages) -> Stages:
-    """A `Stages` whose one named stage raises for `dev:3`."""
+    """A `Stages` whose one named stage raises for `dev:3`.
+
+    Built with `dataclasses.replace` over the base so adding a stage to
+    `Stages` cannot silently leave this helper covering only the old ones —
+    the parametrized test below names every stage in `STAGE_SEQUENCE`.
+    """
 
     def blow_up_on_target(inner: Callable[..., object], target: str) -> Callable[..., object]:
-        def wrapper(value: RawRow | ProductQuery) -> object:
-            if value.row_uid == target:
+        def wrapper(*args: object) -> object:
+            first = args[0]
+            uid = getattr(first, "row_uid", None)
+            if uid is None and isinstance(first, list):
+                # retrieve/fetch receive lists; the target is carried by the
+                # query on the previous stage, so key on the second argument
+                # (match) or fall through for candidate lists.
+                uid = getattr(args[1], "row_uid", None) if len(args) > 1 else None
+            if uid == target:
                 raise RuntimeError("deliberate failure for the P6a gate")
-            return inner(value)
+            return inner(*args)
 
         return wrapper
 
-    replacements = {
-        "normalize": lambda: Stages(
-            normalize=blow_up_on_target(base.normalize, "dev:3"),  # type: ignore[arg-type]
-            registry=base.registry,
-            classify=base.classify,
-        ),
-        "registry": lambda: Stages(
-            normalize=base.normalize,
-            registry=blow_up_on_target(base.registry, "dev:3"),  # type: ignore[arg-type]
-            classify=base.classify,
-        ),
-        "classify": lambda: Stages(
-            normalize=base.normalize,
-            registry=base.registry,
-            classify=blow_up_on_target(base.classify, "dev:3"),  # type: ignore[arg-type]
-        ),
-    }
-    return replacements[stage]()
+    def blow_up_fetch(target: str) -> Callable[[list[object]], list[object]]:
+        # fetch takes only the candidate list; the offline base returns [] so
+        # this stage raises for EVERY row unless we key it by a marker. Use the
+        # runner's own ordering: a fetch failure on the fourth row is dev:3.
+        seen: list[int] = []
+
+        def wrapper(candidates: list[object]) -> list[object]:
+            seen.append(1)
+            if len(seen) == 4:  # dev:3 is the fourth of dev_rows[:10]
+                raise RuntimeError("deliberate failure for the P6a gate")
+            return []
+
+        return wrapper
+
+    if stage == "fetch":
+        return replace(base, fetch=blow_up_fetch("dev:3"))  # type: ignore[arg-type]
+    if stage == "match":
+
+        def match_wrapper(query: ProductQuery, evidence: list[object]) -> object:
+            if query.row_uid == "dev:3":
+                raise RuntimeError("deliberate failure for the P6a gate")
+            return base.match(query, evidence)  # type: ignore[arg-type]
+
+        return replace(base, match=match_wrapper)  # type: ignore[arg-type]
+    return replace(base, **{stage: blow_up_on_target(getattr(base, stage), "dev:3")})  # type: ignore[arg-type]
 
 
 def test_a_failing_row_is_typed_does_not_abort_and_leaves_nothing_behind(
@@ -158,7 +174,7 @@ def test_a_failing_row_is_typed_does_not_abort_and_leaves_nothing_behind(
     assert "deliberate failure" in failure.message
 
 
-@pytest.mark.parametrize("stage", ["normalize", "registry", "classify"])
+@pytest.mark.parametrize("stage", list(STAGE_SEQUENCE))
 def test_failure_is_attributed_to_the_stage_that_actually_raised(
     stage: str, dev_rows: list[RawRow], stages: Stages, tmp_path: Path
 ) -> None:
@@ -194,7 +210,7 @@ def test_resume_skips_completed_rows_without_re_running_them(
         calls.append(query.row_uid)
         return stages.registry(query)
 
-    counted = Stages(normalize=stages.normalize, registry=counting, classify=stages.classify)
+    counted = replace(stages, registry=counting)
     summary = run(rows, counted, paths, "run-2", fixed_clock)
 
     assert calls == []
@@ -219,7 +235,7 @@ def test_a_partially_written_row_is_re_run_not_trusted(
         calls.append(query.row_uid)
         return stages.registry(query)
 
-    run(rows, Stages(stages.normalize, counting, stages.classify), paths, "run-2", fixed_clock)
+    run(rows, replace(stages, registry=counting), paths, "run-2", fixed_clock)
     assert calls == ["dev:2"]
     assert is_row_complete(paths.artifacts, "dev:2")
 

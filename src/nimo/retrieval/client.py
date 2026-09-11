@@ -201,7 +201,10 @@ class SearxngClient:
                 engines=sorted(degraded),
                 still_answering=sorted(set(engines) - degraded),
             )
-        return _results_of(payload, limit)
+
+        results = _results_of(payload, limit)
+        _assert_engines_honoured(results, engines)
+        return results
 
 
 def _payload_of(response: httpx.Response) -> Mapping[str, object]:
@@ -244,6 +247,32 @@ def _results_of(payload: Mapping[str, object], limit: int) -> list[SearchResult]
             )
         )
     return results
+
+
+def _assert_engines_honoured(results: list[SearchResult], requested: tuple[str, ...]) -> None:
+    """Refuse results from engines that were not asked for.
+
+    **Found the hard way.** `engines=startpage` was passed for days; there is
+    no engine called `startpage` in this SearxNG build, and rather than
+    erroring, SearxNG **silently fell back to its default engine set** — Bing
+    included, which is why Bing's junk survived being "removed" from config.
+    An engine probe then scored that fallback set at 91% relevance and
+    recorded it as Startpage's. A phantom measurement, made possible by a
+    parameter that is ignored without a word.
+
+    Results are tagged with the engine that produced them, so the fallback
+    is detectable after the fact. This raises rather than logs: a run whose
+    engine set is not the configured one is not comparable to any other run,
+    and its cache entries are keyed on an engine set that never answered.
+    """
+    stray = sorted({r.engine for r in results} - set(requested))
+    if stray:
+        raise SearchError(
+            f"SearxNG returned results from {stray}, which were not requested "
+            f"({sorted(requested)}). This means at least one requested engine name is unknown "
+            f"to the instance and SearxNG fell back to its defaults. Check the names against "
+            f"`GET /config` — engine names are exact, e.g. `google cse`, not `google`."
+        )
 
 
 def unresponsive_engines(payload: Mapping[str, object]) -> list[str]:

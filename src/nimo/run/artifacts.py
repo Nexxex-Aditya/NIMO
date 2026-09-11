@@ -15,7 +15,14 @@ from pydantic import BaseModel
 # The stage sequence the runner drives today. Ordered, and a subset of
 # `RowFailure.stage`'s Literal — the stages that do not exist yet are simply
 # absent, so adding one later is adding a name here and a call in the runner.
-STAGE_SEQUENCE: tuple[str, ...] = ("normalize", "registry", "classify")
+STAGE_SEQUENCE: tuple[str, ...] = (
+    "normalize",
+    "registry",
+    "retrieve",
+    "fetch",
+    "match",
+    "classify",
+)
 
 
 def artifact_filename(row_uid: str) -> str:
@@ -33,7 +40,9 @@ def artifact_path(root: Path, stage: str, row_uid: str) -> Path:
     return root / stage / artifact_filename(row_uid)
 
 
-def write_artifact(root: Path, stage: str, row_uid: str, model: BaseModel) -> Path:
+def write_artifact(
+    root: Path, stage: str, row_uid: str, model: BaseModel | list[BaseModel]
+) -> Path:
     """Write one artifact atomically: temp file, then rename.
 
     A rename is atomic on POSIX and Windows alike, so a killed run leaves a
@@ -48,7 +57,13 @@ def write_artifact(root: Path, stage: str, row_uid: str, model: BaseModel) -> Pa
     handle, temp_name = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as file:
-            file.write(model.model_dump_json())
+            if isinstance(model, list):
+                # A stage whose output is a list (candidates, evidence) is
+                # written as a JSON array of contracts, not wrapped in a
+                # container type that would have to be added to `03` §3.
+                file.write("[" + ",".join(item.model_dump_json() for item in model) + "]")
+            else:
+                file.write(model.model_dump_json())
         os.replace(temp_name, path)
     finally:
         # `finally`, not `except ...: raise` — "always clean up the temp file"

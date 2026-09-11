@@ -17,13 +17,17 @@ from typing import Literal
 
 from nimo.classify.model import ModuleClassifier
 from nimo.contracts import (
+    CandidateEvidence,
+    CandidateURL,
     ModulePrediction,
     ProductQuery,
     RawRow,
     RegistryLookupResult,
     RowFailure,
     RunSummary,
+    Selection,
 )
+from nimo.match import ScoredCandidate
 from nimo.normalize import normalize_row
 from nimo.registry import RegistryIndex, RegistryThresholds, lookup
 from nimo.run.artifacts import (
@@ -47,7 +51,11 @@ class RowArtifacts:
     row_uid: str
     query: ProductQuery
     registry: RegistryLookupResult
+    candidates: list[CandidateURL]
+    evidence: list[CandidateEvidence]
+    selection: Selection
     module: ModulePrediction
+    wrote_back: bool
 
 
 @dataclass(frozen=True)
@@ -65,16 +73,71 @@ class Stages:
 
     normalize: Callable[[RawRow], ProductQuery]
     registry: Callable[[ProductQuery], RegistryLookupResult]
+    retrieve: Callable[[ProductQuery], list[CandidateURL]]
+    fetch: Callable[[list[CandidateURL]], list[CandidateEvidence]]
+    # Returns the Selection contract plus the best ScoredCandidate, which the
+    # write-back decision needs and the trace records. Both come from
+    # `nimo.match`; the runner is the orchestrator that joins them.
+    match: Callable[
+        [ProductQuery, list[CandidateEvidence]], tuple[Selection, ScoredCandidate | None]
+    ]
+    # `True` if the registry was written. Gated inside on a GTIN accept only
+    # (`specs/match.md` §6); the runner never decides this itself.
+    writeback: Callable[[ProductQuery, ScoredCandidate | None, str | None], bool]
     classify: Callable[[ProductQuery], ModulePrediction]
 
 
-def default_stages(
+def offline_stages(
     index: RegistryIndex, thresholds: RegistryThresholds, classifier: ModuleClassifier
 ) -> Stages:
+    """Stages with NO network: retrieval yields nothing, fetch and match are
+    empty. Used by tests (`04` §6) and by a `--offline` run that exercises the
+    resume path without spending search budget."""
     return Stages(
         normalize=normalize_row,
         registry=lambda query: lookup(query, index, thresholds),
+        retrieve=lambda query: [],
+        fetch=lambda candidates: [],
+        match=lambda query, evidence: (_no_selection(), None),
+        writeback=lambda query, best, module: False,
         classify=classifier.predict,
+    )
+
+
+def _no_selection() -> Selection:
+    """The abstained Selection — `03` §3: `url is None` means abstained."""
+    return Selection(
+        url=None,
+        page_title=None,
+        confidence=0.0,
+        runner_up_gap=0.0,
+        features=None,
+        adjudicated_by_llm=False,
+        resolution_tier="tier2_retrieval",
+    )
+
+
+def _selection_from_hit(result: RegistryLookupResult) -> Selection:
+    """A registry hit resolves identity without stages 2-4 (`03` §2).
+
+    `features is None` — `03` §3: "None when resolved via registry hit".
+    Confidence carries over from the stored entity, discounted for a Tier-1
+    hit by whatever `03` §4 stage 1 step 3 asks for; at present the entity's
+    own confidence is used, with the tier recorded so the discount can be
+    applied downstream once calibration exists.
+    """
+    entity = result.entity
+    assert entity is not None  # a hit always carries its entity
+    tier = result.tier
+    assert tier != "miss"
+    return Selection(
+        url=entity.resolved_url,
+        page_title=entity.page_title,
+        confidence=entity.confidence,
+        runner_up_gap=0.0,
+        features=None,
+        adjudicated_by_llm=False,
+        resolution_tier=tier,
     )
 
 
@@ -87,15 +150,33 @@ def process_row(
     stage that actually raised rather than the last one anybody remembers —
     `04` §4 requires the stage on the record, and a wrong stage is worse than
     no stage because it sends the next person to the wrong module.
+
+    **A registry hit skips retrieve, fetch and match** — `03` §2: "A registry
+    hit at stage 1 skips stages 2–4 entirely; that skip is the whole point of
+    §1a." The artifacts for those stages are written empty so the resume
+    check still sees a complete row.
     """
     # Typed as the Literal rather than `str`, so mypy checks every
     # assignment to the cursor against the stage names `RowFailure`
     # accepts — a typo here would otherwise reach the record as data.
-    stage: Literal["normalize", "registry", "classify"] = "normalize"
+    stage: Literal["normalize", "registry", "retrieve", "fetch", "match", "classify"] = "normalize"
+    candidates: list[CandidateURL] = []
+    evidence: list[CandidateEvidence] = []
+    wrote_back = False
     try:
         query = stages.normalize(row)
         stage = "registry"
         registry_result = stages.registry(query)
+        if registry_result.hit:
+            selection = _selection_from_hit(registry_result)
+        else:
+            stage = "retrieve"
+            candidates = stages.retrieve(query)
+            stage = "fetch"
+            evidence = stages.fetch(candidates)
+            stage = "match"
+            selection, best = stages.match(query, evidence)
+            wrote_back = stages.writeback(query, best, None)
         stage = "classify"
         prediction = stages.classify(query)
     except Exception as error:  # noqa: BLE001 — `04` §4's one sanctioned site
@@ -107,13 +188,23 @@ def process_row(
             occurred_at=clock(),
         )
     return RowArtifacts(
-        row_uid=row.row_uid, query=query, registry=registry_result, module=prediction
+        row_uid=row.row_uid,
+        query=query,
+        registry=registry_result,
+        candidates=candidates,
+        evidence=evidence,
+        selection=selection,
+        module=prediction,
+        wrote_back=wrote_back,
     )
 
 
 def _persist(paths: RunPaths, artifacts: RowArtifacts) -> None:
     write_artifact(paths.artifacts, "normalize", artifacts.row_uid, artifacts.query)
     write_artifact(paths.artifacts, "registry", artifacts.row_uid, artifacts.registry)
+    write_artifact(paths.artifacts, "retrieve", artifacts.row_uid, list(artifacts.candidates))
+    write_artifact(paths.artifacts, "fetch", artifacts.row_uid, list(artifacts.evidence))
+    write_artifact(paths.artifacts, "match", artifacts.row_uid, artifacts.selection)
     write_artifact(paths.artifacts, "classify", artifacts.row_uid, artifacts.module)
 
 
@@ -142,6 +233,17 @@ def _trace_record(artifacts: RowArtifacts, run_id: str, config_fingerprint: str)
         "nearest_example_similarity": artifacts.module.nearest_example_similarity,
         "registry_hit": artifacts.registry.hit,
         "registry_similarity": artifacts.registry.similarity,
+        "candidates": len(artifacts.candidates),
+        "evidence_statuses": dict(Counter(item.fetch_status for item in artifacts.evidence)),
+        "selected_url": artifacts.selection.url,
+        "selected_confidence": artifacts.selection.confidence,
+        "selected_runner_up_gap": artifacts.selection.runner_up_gap,
+        "selected_gtin_exact": (
+            artifacts.selection.features.barcode_exact
+            if artifacts.selection.features is not None
+            else None
+        ),
+        "wrote_back": artifacts.wrote_back,
     }
     return json.dumps(record, sort_keys=True)
 
@@ -154,12 +256,22 @@ def _tier_of(result: RegistryLookupResult) -> str:
     return result.tier if result.hit else "tier2_retrieval"
 
 
+@dataclass
+class CacheCounter:
+    """Hit/miss tally the network-backed stages update as they go, so
+    `RunSummary` reports real numbers (`04` §10) rather than zeros."""
+
+    hits: int = 0
+    misses: int = 0
+
+
 def run(
     rows: list[RawRow],
     stages: Stages,
     paths: RunPaths,
     run_id: str,
     clock: Callable[[], datetime] | None = None,
+    cache_counter: CacheCounter | None = None,
 ) -> RunSummary:
     """Drive every row, skipping completed ones. Returns the run summary.
 
@@ -176,6 +288,7 @@ def run(
     failures: list[RowFailure] = []
     tier_counts: Counter[str] = Counter()
     succeeded = 0
+    writebacks = 0
 
     paths.trace.parent.mkdir(parents=True, exist_ok=True)
     trace_lines: list[str] = []
@@ -197,6 +310,7 @@ def run(
         _persist(paths, outcome)
         trace_lines.append(_trace_record(outcome, run_id, fingerprint))
         tier_counts[_tier_of(outcome.registry)] += 1
+        writebacks += int(outcome.wrote_back)
         succeeded += 1
 
     if trace_lines:
@@ -214,13 +328,13 @@ def run(
         rows_failed=len(failures),
         failures_by_stage=dict(Counter(failure.stage for failure in failures)),
         tier_counts=dict(tier_counts),
-        # Structurally zero at P6a — no LLM client, no fetch cache. Reported
-        # rather than omitted so the fields are wired end to end before the
-        # phases that populate them arrive (`04` §10, `specs/run.md` §6).
+        # LLM counters are structurally zero until P11. Cache counters come
+        # from the stage implementations via `cache_counter` when the caller
+        # provides one; the offline stages have no cache to count.
         llm_calls=0,
         llm_tokens=0,
-        cache_hits=0,
-        cache_misses=0,
+        cache_hits=cache_counter.hits if cache_counter is not None else 0,
+        cache_misses=cache_counter.misses if cache_counter is not None else 0,
         wall_time_s=time.monotonic() - started,
         config_hash=fingerprint,
     )
@@ -242,8 +356,8 @@ def format_summary(summary: RunSummary) -> str:
     lines.extend(f"  {tier}: {count}" for tier, count in sorted(summary.tier_counts.items()))
     lines.append(
         f"llm calls: {summary.llm_calls}  tokens: {summary.llm_tokens}  "
-        f"cache hit/miss: {summary.cache_hits}/{summary.cache_misses}  "
-        f"(all structurally zero until P8/P11)"
+        f"(structurally zero until P11)   "
+        f"page-cache hit/miss: {summary.cache_hits}/{summary.cache_misses}"
     )
     lines.append(f"wall time: {summary.wall_time_s:.1f}s")
     lines.append(f"stages driven: {' -> '.join(STAGE_SEQUENCE)}")

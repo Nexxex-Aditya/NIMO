@@ -1908,6 +1908,95 @@ new `tests/match/`. `04-build-standards.md` §1 P9 row. No contract changes.
 **Status:** standing — HARD-20%; flagged for careful review at the end.
 
 
+## 2026-09-11 — The full pipeline runs; and `startpage` never existed — a second phantom measurement, corrected
+**Decision:** Retrieval, fetch and match are wired into the P6a runner
+(`src/nimo/run/live.py`, `--live` mode). The full six-stage pipeline runs end
+to end, resumably, with registry write-back persisted per merge. And a
+correction that matters more than the wiring: **the engine `startpage` does
+not exist in this SearxNG build**, SearxNG silently substitutes its defaults
+for an unknown name, and the client now refuses results from any engine it
+did not ask for.
+
+**1. The wiring.** `Stages` gains `retrieve`, `fetch`, `match`, `writeback`;
+`STAGE_SEQUENCE` is six stages; a registry hit skips the middle three (`03`
+§2: "that skip is the whole point of §1a"). Three seams the phases left open
+are closed in one place:
+- `CandidateEvidence.url` is the **canonical candidate URL**, never the
+  fetcher's post-redirect `final_url` — P9's first gate run reported 0/5 on
+  exactly that mismatch.
+- Write-back fires on a GTIN accept only and is persisted **per merge**, not
+  once at the end: the runner skips completed rows on resume, so a merge held
+  only in memory when a run is killed is lost for good.
+- Fetch is capped at 8 per row. `03` §4 stage 2 caps candidates at 20;
+  fetching all of them is 8,000 page fetches for `qa`.
+
+Failure attribution is now tested for all six stages. Live on 5 `qa` rows:
+5/5 succeeded, 40 real fetches, 148s, artifacts and trace written, resumable.
+
+**2. `startpage` was a phantom, and the client could not see it.**
+`config/retrieval.yaml` listed `[brave, startpage]`. Inspecting the cache
+after a live run: entries keyed `engines=['startpage']` held results tagged
+`bing`, `duckduckgo`, `google cse`. `GET /config` confirmed it — no engine of
+that name exists. **SearxNG does not error on an unknown engine; it silently
+falls back to its default set**, which includes Bing. So:
+- for as long as `startpage` was configured, the pipeline was querying
+  `[brave] + defaults`, which is why Bing's junk survived being "removed";
+- the earlier engine probe that scored "startpage" at 91% relevance was
+  measuring the default fallback set and recording it under the wrong name —
+  **a second phantom measurement in this layer**, after the Bing one;
+- once Brave was suspended (`too many requests`, from probing), the pipeline
+  was running on defaults alone, unlabelled.
+
+Fixed structurally rather than by editing the list: `_assert_engines_honoured`
+raises `SearchError` if any result carries an engine tag that was not
+requested. Results are tagged with their real engine, so the fallback is
+detectable after the fact; a client that checks cannot be fooled by it. The
+poisoned search cache — every entry keyed on an engine set that never
+answered — was deleted.
+
+**3. The portfolio, re-measured with tags verified**, four real product
+queries per engine, 3s apart:
+
+| engine | queries ok | tags honoured | relevant |
+|---|---|---|---|
+| **google cse** | 4/4 | 60/60 | **87%** |
+| **duckduckgo** | 4/4 | 40/40 | **82%** — recovered from its earlier CAPTCHA |
+| brave | 0/4 | — | suspended: too many requests |
+| mojeek | 4/4 | — | 0% |
+
+`google cse` is the best engine available and was never tested before,
+because nothing indicated it existed. `engines: [google cse, duckduckgo,
+brave]`; the breaker carries whichever is down.
+
+**4. What the live run showed once the engines were real.** Before the fix,
+the five selections were a Facebook video, an eBay listing,
+`docs.github.com`, `accounts.google.com` and a barcode directory — with the
+matcher honestly scoring them 0.02–0.05. After: Superdrug's product page for
+`qa:0` at 0.64, a plausible brand page for `qa:1`, and **two Amazon *search
+listings*** (`/s?k=...`) for `qa:2` and `qa:3`. A listing page is not a
+product page and should be demoted like `bundle` or `refill`; recorded for
+the next pass rather than bolted on here. No fetched page carried a GTIN
+matching its query, so no write-back fired — the registry is still empty
+after the first live runs, which is the honest state.
+
+**5. S2 is the best strategy on `qa`, and S3 suffers from the descriptions
+themselves.** Per-strategy `brand_signal_rate` over the live rows: S2
+(barcode + brand) **54%**, S1 (bare barcode) 19%, S3 15%. S3's queries for
+these rows were `WISDOM wiw tthwhtng stpchrcl 5s intense whitening
+strpscharcoal 5days` and `ORAL B bcsan gr p 1.7g` — retailer abbreviation
+soup P3 cannot expand. S2 sidesteps it by pairing the barcode with a brand,
+which is enough context for an engine. The strategy order is not changed here
+on five rows; it is the obvious next measurement once a run covers more.
+**Affects:** new `src/nimo/run/live.py`; `src/nimo/run/runner.py` (six
+stages, `CacheCounter`, hit-skip), `artifacts.py` (list artifacts),
+`__main__.py` (`--live`, `--limit`), `__init__.py`; `tests/run/test_runner.py`
+(attribution over all six stages). `src/nimo/retrieval/client.py`
+(`_assert_engines_honoured`), `config/retrieval.yaml` (real names + the
+correction), `tests/retrieval/test_resilience.py` (+2).
+**Status:** standing — supersedes the "startpage" row in the engine table two
+entries up.
+
+
 ---
 
 # Open questions — resolve with organizers

@@ -26,46 +26,34 @@ per_strategy_limit: 8
 #   S5     dev 412/412        qa 412/412
 strategy_order: [S1, S2, S3, S4, S5]
 
-# SearxNG engines, MEASURED not chosen by reputation (2026-09-11).
+# SearxNG engines — names are EXACT and verified against `GET /config`.
 #
-# Four real product queries per engine, paced 2s apart so the probe would not
-# cause the blocking it was measuring:
+# ****** CORRECTION 2026-09-11 ******
+# An earlier version of this list contained `startpage`. THERE IS NO ENGINE
+# CALLED `startpage` IN THIS SEARXNG BUILD. SearxNG does not error on an
+# unknown engine name; it silently falls back to its default engine set —
+# which includes Bing. So for the whole time `startpage` was configured, the
+# pipeline was actually querying `[brave] + defaults`, which is why Bing's
+# junk survived being "removed", and why the earlier probe that scored
+# "startpage" at 91% relevance was measuring the fallback set and recording
+# it under the wrong name. The client now raises if any result carries an
+# engine tag that was not requested (`_assert_engines_honoured`), so this
+# class of phantom cannot recur silently.
 #
-#   engine       blocked  results/q  relevant
-#   brave           0/4      20.0       95%    <- best quality
-#   startpage       0/4      34.8       91%    <- most results
-#   bing            0/4      10.0       25%    <- weak, but independent
-#   mojeek          0/4       0.0        -     enabled, returns nothing for UK retail
-#   duckduckgo      4/4         -         -    CAPTCHA
-#   qwant           4/4         -         -    CAPTCHA
-#   google          4/4         -         -    Suspended: CAPTCHA
+# Measured 2026-09-11 with result engine tags VERIFIED, four real product
+# queries each, 3s apart:
 #
-# Google, DuckDuckGo and Qwant CAPTCHA-block a single IP within a few dozen
-# queries. They are excluded regardless of result quality — an engine that
-# stops answering partway through a 400-row run is worse than one that never
-# answered, because the run looks like it worked.
+#   engine       queries ok  tags honoured  relevant   note
+#   google cse      4/4         60/60          87%     best; never blocked in testing
+#   duckduckgo      4/4         40/40          82%     CAPTCHAs under load, recovers
+#   brave           0/4           -             -      "Suspended: too many requests" (from probing)
+#   mojeek          4/4           -             0%     returns nothing for UK retail
+#   bing            -             -            25%     answers a DIFFERENT query; excluded
 #
-# **No single free engine is reliable, and that is the design constraint.**
-# Brave itself began blocking after ~6 queries in a later probe. What kept
-# that run producing candidates was the other two continuing — which is why
-# this is a PORTFOLIO with a per-engine circuit breaker, not a preference
-# list. Bing earns its place on independence, not relevance.
-engines: [brave, startpage]
-
-# BING REMOVED 2026-09-11 after it was caught returning results for an
-# entirely different query — not weak ranking, a broken integration:
-#
-#   "sensodyne pronamel toothpaste 75ml"  -> news.mit.edu/topic/artificial-intelligence
-#   "CURAPROX aligner care foam 40ml"     -> bilibili.com/video/BV1e2421L73V
-#   '"5014697056627"'                     -> en.akinator.com
-#   "aquafresh whitening pump 100ml"      -> support.microsoft.com/.../fix-bluetooth-problems
-#
-# It reports as HEALTHY throughout — no CAPTCHA, no error — while filling the
-# candidate cap with noise. That is worse than being blocked, because the
-# circuit breaker cannot see it and the row still looks like it retrieved 20
-# candidates. The probe had already scored it 25% relevant and it was kept
-# anyway "on index independence"; that was a mistake, and 25% relevance should
-# have been read as 75% noise rather than as a diversity benefit.
+# Brave measured 95% relevant earlier in the day before probing exhausted it.
+# All three below are exhaustible; the per-engine breaker below is what keeps
+# a run alive when one drops.
+engines: [google cse, duckduckgo, brave]
 
 # --- Query budget ----------------------------------------------------------
 #
