@@ -48,6 +48,7 @@ LLM_CONFIG = LlmConfig(
     temperature=0.0,
     max_output_tokens=256,
     max_tokens_param="max_tokens",
+    reasoning_effort=None,
     request_timeout_s=5.0,
     max_tokens_per_run=100_000,
     max_calls_per_run=100,

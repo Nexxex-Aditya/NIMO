@@ -42,6 +42,7 @@ CONFIG = LlmConfig(
     temperature=0.0,
     max_output_tokens=256,
     max_tokens_param="max_tokens",
+    reasoning_effort=None,
     request_timeout_s=5.0,
     max_tokens_per_run=10_000,
     max_calls_per_run=3,
@@ -89,6 +90,10 @@ def test_shipped_llm_config_is_pinned_and_omits_temperature() -> None:
     assert config.model == "hack-fest-gpt-5.6-luna"
     assert config.temperature is None
     assert config.max_tokens_param in ("max_tokens", "max_completion_tokens")
+    assert config.reasoning_effort is None  # not sent until measured against the gateway
+    # Measured 2026-09-12: 64 tokens were consumed entirely by hidden
+    # reasoning. The cap must leave room for reasoning AND the JSON.
+    assert config.max_output_tokens >= 2048
     assert config.max_calls_per_run > 0 and config.max_tokens_per_run > 0
 
 
@@ -112,6 +117,103 @@ def test_a_temperature_other_than_zero_or_null_is_refused(tmp_path: Path) -> Non
     bad_param.write_text(yaml.safe_dump(data), encoding="utf-8")
     with pytest.raises(LlmConfigError, match="llm_max_tokens_param"):
         load_llm_config(bad_param)
+
+    data["llm_max_tokens_param"] = "max_tokens"
+    data["llm_reasoning_effort"] = "maximum"
+    bad_effort = tmp_path / "bad_effort.yaml"
+    bad_effort.write_text(yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(LlmConfigError, match="llm_reasoning_effort"):
+        load_llm_config(bad_effort)
+
+    data["llm_reasoning_effort"] = "low"
+    low = tmp_path / "low.yaml"
+    low.write_text(yaml.safe_dump(data), encoding="utf-8")
+    assert load_llm_config(low).reasoning_effort == "low"
+
+
+# --- the adapter's response reading, against constructed SDK objects (no network)
+
+
+def _completions(finish_reason: str, content: str | None, **usage: object) -> object:
+    from azure.ai.inference.models import ChatCompletions
+
+    return ChatCompletions(
+        {
+            "id": "x",
+            "created": 0,
+            "model": "m",
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": finish_reason,
+                    "message": {"role": "assistant", "content": content},
+                }
+            ],
+            "usage": {"prompt_tokens": 41, "completion_tokens": 64, "total_tokens": 105, **usage},
+        }
+    )
+
+
+def test_a_cap_hit_is_a_typed_truncation_not_an_empty_answer() -> None:
+    """Measured 2026-09-12: 64 completion tokens spent, content ''. Retrying
+    that through the JSON path would spend a second call for the same
+    result; the adapter raises with the fix in the message."""
+    from azure.ai.inference.models import ChatCompletions
+
+    from nimo.llm.azure import read_response
+    from nimo.llm.client import LlmTruncated
+
+    response = _completions("length", "", completion_tokens_details={"reasoning_tokens": 64})
+    assert isinstance(response, ChatCompletions)
+    with pytest.raises(LlmTruncated, match="64 of them hidden reasoning") as info:
+        read_response(response, a_call())
+    assert "llm_max_output_tokens" in str(info.value)
+    assert issubclass(LlmTruncated, LlmError)
+
+
+def test_a_complete_answer_carries_the_reasoning_share_when_reported() -> None:
+    from azure.ai.inference.models import ChatCompletions
+
+    from nimo.llm.azure import read_response
+
+    response = _completions(
+        "stop", '{"ok": true}', completion_tokens_details={"reasoning_tokens": 50}
+    )
+    assert isinstance(response, ChatCompletions)
+    out = read_response(response, a_call())
+    assert out.text == '{"ok": true}'
+    assert (out.prompt_tokens, out.completion_tokens, out.reasoning_tokens) == (41, 64, 50)
+    assert out.from_cache is False
+
+    plain = _completions("stop", '{"ok": true}')
+    assert isinstance(plain, ChatCompletions)
+    assert read_response(plain, a_call()).reasoning_tokens is None
+
+
+def test_a_filtered_answer_raises_rather_than_returning_empty_text() -> None:
+    from azure.ai.inference.models import ChatCompletions
+
+    from nimo.llm.azure import read_response
+
+    response = _completions("content_filter", None)
+    assert isinstance(response, ChatCompletions)
+    with pytest.raises(LlmError, match="content_filter"):
+        read_response(response, a_call())
+
+
+def test_reasoning_tokens_round_trip_through_the_cache(tmp_path: Path) -> None:
+    calls: list[LlmCall] = []
+
+    def complete(call: LlmCall) -> LlmResponse:
+        calls.append(call)
+        return LlmResponse('{"ok": true}', 41, 64, from_cache=False, reasoning_tokens=50)
+
+    client = LlmClient(config=CONFIG, complete=complete, cache_dir=tmp_path)
+    first = client.call(a_call())
+    second = client.call(a_call())
+    assert len(calls) == 1
+    assert first.reasoning_tokens == 50
+    assert second.from_cache and second.reasoning_tokens == 50
 
 
 @pytest.mark.parametrize("model", ["latest", "", "  ", "default"])

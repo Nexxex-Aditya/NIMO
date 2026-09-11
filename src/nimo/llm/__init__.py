@@ -13,6 +13,7 @@ from nimo.llm.client import (
     LlmCounter,
     LlmError,
     LlmResponse,
+    LlmTruncated,
     LlmValidationError,
     cache_key,
 )
@@ -33,6 +34,7 @@ __all__ = [
     "LlmCounter",
     "LlmError",
     "LlmResponse",
+    "LlmTruncated",
     "LlmValidationError",
     "PromptError",
     "PromptTemplate",

@@ -19,6 +19,10 @@ CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "models.yaml"
 _UNPINNED = frozenset({"", "latest", "default", "auto"})
 
 
+ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = ("minimal", "low", "medium", "high")
+
+
 class LlmConfigError(Exception):
     """`config/models.yaml` is missing, malformed, or violates `05` §3 / `04` §5."""
 
@@ -34,6 +38,7 @@ class LlmConfig:
     )  # None == not sent; the model runs at its default (measured: required)
     max_output_tokens: int
     max_tokens_param: Literal["max_tokens", "max_completion_tokens"]
+    reasoning_effort: ReasoningEffort | None  # None == not sent
     request_timeout_s: float
     max_tokens_per_run: int
     max_calls_per_run: int
@@ -49,6 +54,19 @@ def _max_tokens_param(
         return "max_completion_tokens"
     raise LlmConfigError(
         f"{path}: `llm_max_tokens_param` must be `max_tokens` or `max_completion_tokens`; "
+        f"got {value!r}."
+    )
+
+
+def _reasoning_effort(data: dict[str, object], path: Path) -> ReasoningEffort | None:
+    value = data.get("llm_reasoning_effort")
+    if value is None:
+        return None
+    for effort in _REASONING_EFFORTS:
+        if value == effort:
+            return effort
+    raise LlmConfigError(
+        f"{path}: `llm_reasoning_effort` must be null or one of {list(_REASONING_EFFORTS)}; "
         f"got {value!r}."
     )
 
@@ -93,6 +111,7 @@ def load_llm_config(path: Path = CONFIG_PATH) -> LlmConfig:
         ),
         max_output_tokens=_positive_int(data, "llm_max_output_tokens", path),
         max_tokens_param=_max_tokens_param(data, path),
+        reasoning_effort=_reasoning_effort(data, path),
         request_timeout_s=_number(data, "llm_request_timeout_s", path),
         max_tokens_per_run=_positive_int(data, "llm_max_tokens_per_run", path),
         max_calls_per_run=_positive_int(data, "llm_max_calls_per_run", path),

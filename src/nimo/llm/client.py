@@ -47,6 +47,15 @@ class LlmValidationError(LlmError):
     """The answer did not validate against the schema, twice (`04` §7)."""
 
 
+class LlmTruncated(LlmError):
+    """The output cap was hit before the answer was complete. Measured
+    2026-09-12: the pinned model reasons before it writes, and its reasoning
+    tokens count against `max_tokens`, so a tight cap yields EMPTY content
+    with `finish_reason="length"`. Raised, never retried — a second identical
+    call truncates identically. The fix is `llm_max_output_tokens` or
+    `llm_reasoning_effort` in `config/models.yaml`."""
+
+
 @dataclass(frozen=True)
 class LlmCall:
     """Everything that determines an answer — and therefore the cache key."""
@@ -63,8 +72,9 @@ class LlmCall:
 class LlmResponse:
     text: str
     prompt_tokens: int
-    completion_tokens: int
+    completion_tokens: int  # INCLUDES hidden reasoning tokens on a reasoning model
     from_cache: bool
+    reasoning_tokens: int | None = None  # the hidden share, when the gateway reports it
 
 
 # The injected network seam. `llm/azure.py` provides the real one.
@@ -133,6 +143,7 @@ class LlmClient:
             prompt_hash=call.prompt_hash[:12],
             prompt_tokens=response.prompt_tokens,
             completion_tokens=response.completion_tokens,
+            reasoning_tokens=response.reasoning_tokens,
         )
         return response
 
@@ -199,11 +210,13 @@ class LlmClient:
                 f"{path} is not readable as an LLM cache entry: {error}. Delete it to re-ask; "
                 f"a cache that quietly drops entries looks identical to one that works (`04` §4)."
             ) from error
+        reasoning = payload.get("reasoning_tokens")
         return LlmResponse(
             text=str(payload["text"]),
             prompt_tokens=int(payload["prompt_tokens"]),
             completion_tokens=int(payload["completion_tokens"]),
             from_cache=True,
+            reasoning_tokens=None if reasoning is None else int(reasoning),
         )
 
     def _write_cache(self, key: str, call: LlmCall, response: LlmResponse) -> None:
@@ -226,6 +239,7 @@ class LlmClient:
                     "text": response.text,
                     "prompt_tokens": response.prompt_tokens,
                     "completion_tokens": response.completion_tokens,
+                    "reasoning_tokens": response.reasoning_tokens,
                 },
                 indent=1,
                 sort_keys=True,

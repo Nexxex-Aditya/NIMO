@@ -47,11 +47,23 @@ llm_api_version: "2025-03-01-preview"
 # re-asks) and the pinned model id — stated in the decision log, not hidden.
 # A number here must be 0 and is sent; use it only for a model that accepts it.
 llm_temperature: null
-llm_max_output_tokens: 1024
-# Which request field carries the output cap. GPT-5-family models behind
-# some gateways reject `max_tokens` and require `max_completion_tokens`;
-# flip this if the next 400 says so.
+# MEASURED 2026-09-12, second live call: the model is a REASONING model. Its
+# hidden reasoning tokens are billed as completion tokens and count against
+# this cap — a 64-token ping came back with 64 completion tokens spent and
+# EMPTY content (finish_reason "length"). The visible JSON the pipeline asks
+# for is ~50-300 tokens; the reasoning in front of it is unknown until the
+# first 20-row run reports `reasoning_tokens` per call. 4096 leaves room;
+# the adapter raises `LlmTruncated` rather than returning "" if it is hit.
+llm_max_output_tokens: 4096
+# Which request field carries the output cap. The CIS gateway accepted
+# `max_tokens` (measured 2026-09-12); `max_completion_tokens` is here for a
+# gateway that rejects the older name.
 llm_max_tokens_param: max_tokens      # max_tokens | max_completion_tokens
+# Reasoning effort, sent as `reasoning_effort` only when set. `null` = not
+# sent (the model's default). If the 20-row run shows reasoning tokens
+# dominating the budget, `low` is the first thing to try — NOT VERIFIED
+# against this gateway; a 400 naming the field means it is unsupported.
+llm_reasoning_effort: null            # null | minimal | low | medium | high
 llm_request_timeout_s: 60
 
 # Hard per-run budget — `05` §3. On breach the runner ABORTS with a clear

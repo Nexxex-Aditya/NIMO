@@ -59,7 +59,9 @@ def main(argv: list[str]) -> int:
         system="You answer with a single JSON object and nothing else.",
         user='Reply with exactly {"ok": true, "model_seen": "<the model name you are>"}.',
         temperature=config.temperature,
-        max_tokens=64,
+        # The configured cap, not a token-pinching one: measured 2026-09-12,
+        # a 64-token cap was consumed entirely by hidden reasoning.
+        max_tokens=config.max_output_tokens,
         prompt_hash="ping",
     )
     try:
@@ -70,7 +72,9 @@ def main(argv: list[str]) -> int:
     print(f"call     : OK  ok={pong.ok}  model_seen={pong.model_seen!r}")
     print(
         f"tokens   : prompt {client.counter.prompt_tokens}, "
-        f"completion {client.counter.completion_tokens}"
+        f"completion {client.counter.completion_tokens} "
+        f"(the `llm_call` log line above shows the hidden reasoning share, if reported; "
+        f"size `llm_max_output_tokens` from it)"
     )
     print("The adapter works on this network. Next: the dev gate (docs/06-office-runbook.md).")
     return 0
