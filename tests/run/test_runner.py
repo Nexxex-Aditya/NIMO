@@ -16,6 +16,8 @@ import pytest
 from nimo.classify import load_classify_config
 from nimo.classify.model import ModuleClassifier
 from nimo.contracts import (
+    CandidateEvidence,
+    CandidateURL,
     CanonicalEntity,
     CharacteristicValues,
     ProductQuery,
@@ -304,9 +306,77 @@ def test_a_registry_hit_without_a_stored_module_falls_through_to_the_classifier(
     )
     hit = RegistryLookupResult(hit=True, tier="tier0_exact", entity=entity, similarity=None)
     paths = paths_in(tmp_path)
-    run(dev_rows[:1], replace(stages, registry=lambda query: hit), paths, "r", fixed_clock)
+    fetched: list[list[str]] = []
+    refreshed: list[tuple[str, str | None, str]] = []
+
+    def fetch(candidates: list[CandidateURL]) -> list[CandidateEvidence]:
+        fetched.append([c.url for c in candidates])
+        return []
+
+    def refresh(
+        query: ProductQuery,
+        found: CanonicalEntity,
+        module: str | None,
+        values: CharacteristicValues,
+    ) -> bool:
+        refreshed.append((found.entity_id, module, values.source))
+        return True
+
+    run(
+        dev_rows[:1],
+        replace(stages, registry=lambda query: hit, fetch=fetch, refresh=refresh),
+        paths,
+        "r",
+        fixed_clock,
+    )
     module = artifact_path(paths.artifacts, "classify", "dev:0").read_text(encoding="utf-8")
     assert '"source":"text_baseline"' in module
+    # the entity's own page was fetched for evidence — one URL, no search —
+    # and the classified module was offered back to the entity
+    assert fetched == [["https://boots.com/p"]]
+    assert len(refreshed) == 1 and refreshed[0][0] == "gtin:old"
+    assert refreshed[0][1] is not None and refreshed[0][2] == "gate_only"
+    trace = paths.trace.read_text(encoding="utf-8")
+    assert '"wrote_back": true' in trace
+
+
+def test_a_complete_entity_hit_neither_fetches_nor_refreshes(
+    dev_rows: list[RawRow], stages: Stages, tmp_path: Path
+) -> None:
+    entity = CanonicalEntity(
+        entity_id="gtin:done",
+        barcode="5014697056627",
+        brand="AQUAFRESH",
+        size_ml_equiv=100.0,
+        size_g_equiv=None,
+        count=1,
+        variant_terms=["whitening"],
+        module="TOOTH CLEANING - FOAM/GEL/LIQUID/PASTE (NATURAL TEETH)",
+        resolved_url="https://boots.com/p",
+        page_title="p",
+        characteristics={},
+        confidence=1.0,
+        member_row_uids=["qa:5"],
+        resolution_tier="tier2_retrieval",
+        created_at=FIXED_TS,
+        updated_at=FIXED_TS,
+    )
+    hit = RegistryLookupResult(hit=True, tier="tier0_exact", entity=entity, similarity=None)
+    touched: list[str] = []
+    run(
+        dev_rows[:1],
+        replace(
+            stages,
+            registry=lambda query: hit,
+            fetch=lambda candidates: touched.append("fetch") or [],  # type: ignore[func-returns-value]
+            refresh=lambda query, found, module, values: touched.append("refresh") or True,  # type: ignore[func-returns-value]
+        ),
+        paths_in(tmp_path),
+        "r",
+        fixed_clock,
+        rules=load_characteristic_rules(WORKBOOK),
+    )
+    assert touched == []
 
 
 # --- resume ------------------------------------------------------------------

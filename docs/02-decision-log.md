@@ -2563,6 +2563,31 @@ sentence next to it, not a hope that nobody asks.
 finished writing the artifact tree.
 
 
+## 2026-09-11 — Self-audit: a registry hit on an incomplete entity now completes it
+**Decision:** A Tier 0/1 hit on an entity that has no stored module — every
+entity tonight's harvest wrote, since it ran before P12 — no longer skips
+straight to a record-only extraction. The runner fetches the entity's own
+`resolved_url` (one URL through the ordinary fetch stage: cache, robots,
+SSRF guard — never a side channel), classifies, extracts with that page as
+evidence, and **refreshes** the entity: fills the module (never overwrites
+one), stores model-sourced characteristics (a gate-only run cannot blank
+stored ones), adds the row to its members, audit-logged (`05` §4). A hit on
+a complete entity still fetches nothing and refreshes nothing — tested.
+**Why:** found by reading the hit path before running the re-run. Without
+this, the ~100 entities the harvest wrote would have stayed `module=None`
+forever (the hit path never wrote back), and on the office-laptop
+`--characteristics` run every one of those rows would have been extracted
+from the record alone while a resolved product page sat unused in the
+registry. A memory that cannot be completed is a defect in the memory, not
+a property of first passes.
+**Affects:** `src/nimo/run/runner.py` (`Stages.refresh`, `_entity_candidate`,
+the hit branch), `src/nimo/run/live.py` (`RegistryWriter.refresh`,
+`_persist`), `tests/run/test_runner.py` (+1, one extended), new
+`tests/run/test_live.py` (4). Also `README.md` (new) and an assembly
+alignment check on `NAN_KEY`/`ITEM_CODE` (`69984c5`).
+**Status:** standing.
+
+
 ---
 
 # Open questions — resolve with organizers

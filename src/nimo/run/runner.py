@@ -20,6 +20,7 @@ from nimo.classify.model import ModuleClassifier
 from nimo.contracts import (
     CandidateEvidence,
     CandidateURL,
+    CanonicalEntity,
     CharacteristicRule,
     CharacteristicValues,
     ModulePrediction,
@@ -101,6 +102,11 @@ class Stages:
     characteristics: Callable[
         [ProductQuery, str | None, CandidateEvidence | None], CharacteristicValues
     ]
+    # A Tier 0/1 hit on an entity that has no stored module (written before
+    # P12, or by a gate-only run): after this row classifies and extracts,
+    # write those into the entity so the NEXT hit can skip stages 5-6 too.
+    # Audit-logged inside; `True` if the entity changed.
+    refresh: Callable[[ProductQuery, CanonicalEntity, str | None, CharacteristicValues], bool]
     # The REASONING cell, composed from the row's record (`specs/reason.md`).
     reason: Callable[
         [
@@ -135,6 +141,7 @@ def offline_stages(
         writeback=lambda query, best, module, values: False,
         classify=classifier.predict,
         characteristics=lambda query, module, evidence: gate_only(query.row_uid, module, rules),
+        refresh=lambda query, entity, module, values: False,
         reason=lambda query, registry, selection, module, values, evidence: compose(
             query, registry, selection, module, values, evidence, reason_config
         ),
@@ -171,6 +178,19 @@ def _module_from_hit(row_uid: str, result: RegistryLookupResult) -> ModulePredic
         nearest_example_row_uid=None,
         nearest_example_similarity=0.0,
         source="registry",
+    )
+
+
+def _entity_candidate(entity: CanonicalEntity) -> CandidateURL:
+    """The stored page as a candidate, so the ordinary fetch stage (cache,
+    robots, SSRF guard) serves it — never a side channel around them."""
+    assert entity.resolved_url is not None
+    return CandidateURL(
+        url=entity.resolved_url,
+        source_query="registry",
+        engine="registry",
+        rank=1,
+        title_snippet=entity.page_title,
     )
 
 
@@ -216,7 +236,10 @@ def process_row(
     **A registry hit skips retrieve, fetch and match** — `03` §2: "A registry
     hit at stage 1 skips stages 2–4 entirely; that skip is the whole point of
     §1a." The artifacts for those stages are written empty so the resume
-    check still sees a complete row.
+    check still sees a complete row. One exception, so the registry can be
+    *completed*: a hit on an entity with no stored module fetches that
+    entity's own page (one URL, no search) so classification and extraction
+    have evidence, then writes the results into the entity.
     """
     # Typed as the Literal rather than `str`, so mypy checks every
     # assignment to the cursor against the stage names `RowFailure`
@@ -239,8 +262,15 @@ def process_row(
         query = stages.normalize(row)
         stage = "registry"
         registry_result = stages.registry(query)
+        entity = registry_result.entity
+        stored = _module_from_hit(row.row_uid, registry_result)
         if registry_result.hit:
             selection = _selection_from_hit(registry_result)
+            if stored is None and entity is not None and entity.resolved_url:
+                # An incomplete entity: fetch its own page so the stages
+                # below have evidence. One URL, no search budget.
+                stage = "fetch"
+                evidence = stages.fetch([_entity_candidate(entity)])
         else:
             stage = "retrieve"
             candidates = stages.retrieve(query)
@@ -249,10 +279,8 @@ def process_row(
             stage = "match"
             selection, best = stages.match(query, evidence)
         stage = "classify"
-        stored = _module_from_hit(row.row_uid, registry_result)
         prediction = stored if stored is not None else stages.classify(query)
         stage = "characteristics"
-        entity = registry_result.entity
         if stored is not None and entity is not None and rules is not None:
             # `03` §4 stage 6, last paragraph: a registry hit carries the
             # stored values; the gate was applied when they were written.
@@ -264,6 +292,8 @@ def process_row(
             # After classify + characteristics, so the entity carries both
             # (`specs/characteristics.md` §5). Still GTIN-accept only inside.
             wrote_back = stages.writeback(query, best, prediction.module, values)
+        elif stored is None and entity is not None:
+            wrote_back = stages.refresh(query, entity, prediction.module, values)
         stage = "reason"
         reasoning = stages.reason(query, registry_result, selection, prediction, values, evidence)
     except Exception as error:  # noqa: BLE001 — `04` §4's one sanctioned site

@@ -112,12 +112,51 @@ class RegistryWriter:
             else None
         )
         entity = build_entity(query, best, module, now, existing=existing, characteristics=stored)
+        self._persist(entity, now)
+        return True
+
+    def refresh(
+        self,
+        query: ProductQuery,
+        entity: CanonicalEntity,
+        module: str | None,
+        values: CharacteristicValues,
+    ) -> bool:
+        """Complete an entity a hit found incomplete: fill the module (never
+        overwrite one) and model-sourced characteristics, add this row to
+        its members. Audit-logged like any write (`05` §4). `False` when
+        nothing would change — a gate-only run cannot complete an entity."""
+        new_module = entity.module if entity.module is not None else module
+        stored = (
+            {name: value for name, value in values.values.items() if value is not None}
+            if values.source == "llm"
+            else dict(entity.characteristics)
+        )
+        members = sorted(set(entity.member_row_uids) | {query.row_uid})
+        if (
+            new_module == entity.module
+            and stored == entity.characteristics
+            and members == entity.member_row_uids
+        ):
+            return False
+        now = datetime.now(UTC)  # metadata, never read by logic (`04` §5)
+        updated = entity.model_copy(
+            update={
+                "module": new_module,
+                "characteristics": stored,
+                "member_row_uids": members,
+                "updated_at": now,
+            }
+        )
+        self._persist(updated, now)
+        return True
+
+    def _persist(self, entity: CanonicalEntity, now: datetime) -> None:
         self.entities[entity.entity_id] = entity
         write_entities(
             self.entities_path, sorted(self.entities.values(), key=lambda e: e.entity_id)
         )
         append_audit(self.audit_path, audit_for(entity, self.run_id, now))
-        return True
 
 
 def live_stages(
@@ -218,6 +257,7 @@ def live_stages(
         writeback=writer.write_back,
         classify=classifier.predict,
         characteristics=characteristics,
+        refresh=writer.refresh,
         reason=lambda query, registry, selection, module, values, evidence: compose(
             query, registry, selection, module, values, evidence, reason_config
         ),
