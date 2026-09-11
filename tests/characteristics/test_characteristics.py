@@ -368,6 +368,52 @@ def test_characteristics_block_lists_allowed_values_for_closed_only(
     assert (
         "### GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT_GROUP\nkind: OPEN-ENDED\nexample values:" in text
     )
+    assert "practice default" not in text  # none passed: the guideline stands alone
+
+
+def test_practice_defaults_are_rendered_after_the_guideline_with_their_evidence(
+    rules: list[CharacteristicRule], guidelines: dict[str, str]
+) -> None:
+    """Measured 2026-09-12: the guideline says WITHOUT FLUORIDE is the
+    default; the coders code WITH FLUORIDE on 123 of 148 rows, page silent
+    or not. The written text is never edited — the measurement is rendered
+    beside it, with the numbers."""
+    config = load_characteristics_config()
+    assert config.practice_defaults["GLOBAL_IF_WITH_FLUORIDE"].value == "WITH FLUORIDE"
+    assert "123 of 148" in config.practice_defaults["GLOBAL_IF_WITH_FLUORIDE"].evidence
+    text = characteristics_block(
+        applicable_rules(rules, PASTE), guidelines, config.practice_defaults
+    )
+    section = text.split("### GLOBAL_IF_WITH_FLUORIDE")[1].split("### ")[0]
+    assert "guideline: " in section and "This is the default value" in section  # verbatim, kept
+    assert section.index("guideline: ") < section.index("practice default")
+    assert "practice default (measured on the labelled data" in section
+    assert "WITH FLUORIDE — the guideline names WITHOUT FLUORIDE" in section
+    flavour = text.split("### GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT_GROUP")[1].split("### ")[0]
+    assert "NOT STATED — the guideline names no default" in flavour
+    # A characteristic without a measured default gets none.
+    function = text.split("### GLOBAL_ORAL_CARE_FUNCTION")[1].split("### ")[0]
+    assert "practice default" not in function
+
+
+def test_a_practice_default_without_its_measurement_is_refused(tmp_path: Path) -> None:
+    import yaml
+
+    from nimo.characteristics import CharacteristicsConfigError
+
+    data = yaml.safe_load(
+        (REPO_ROOT / "config" / "characteristics.yaml").read_text(encoding="utf-8")
+    )
+    data["practice_defaults"] = {"GLOBAL_IF_WITH_FLUORIDE": {"value": "WITH FLUORIDE"}}
+    path = tmp_path / "characteristics.yaml"
+    path.write_text(yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(CharacteristicsConfigError, match="evidence"):
+        load_characteristics_config(path)
+    data["practice_defaults"] = {"MODULE": {"value": "x", "evidence": "y"}}
+    other = tmp_path / "other.yaml"
+    other.write_text(yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(CharacteristicsConfigError, match="not a characteristic column"):
+        load_characteristics_config(other)
 
 
 # --- injection fixtures (`05` §1) ----------------------------------------------------

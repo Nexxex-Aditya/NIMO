@@ -65,6 +65,27 @@ excerpt_anchor_terms:
 # answered from text. Flipping it is the change when Q7 resolves.
 use_image_evidence: false
 
+# Evidence-silent defaults MEASURED on `dev` where the coders' practice
+# contradicts the guideline's written default (or where the guideline names
+# none and the coders use a value, never a blank). Rendered into the prompt
+# after the guideline as the value to use when the evidence is silent. The
+# guideline text itself is never edited — it is the organizers'. Numbers
+# from `uv run python -m nimo.characteristics` over the 412 labelled rows,
+# 2026-09-12; the mechanism is `specs/characteristics.md` §2a.
+practice_defaults:
+  GLOBAL_IF_WITH_FLUORIDE:
+    value: WITH FLUORIDE
+    evidence: >-
+      the guideline names WITHOUT FLUORIDE as the default, but the labelled
+      data codes WITH FLUORIDE on 123 of 148 applicable rows, including rows
+      whose page never mentions fluoride; WITHOUT FLUORIDE is used only when
+      the product states it is fluoride-free
+  GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT_GROUP:
+    value: NOT STATED
+    evidence: >-
+      the guideline names no default; the labelled data codes NOT STATED on
+      113 of 278 applicable rows and never leaves the value blank
+
 # Values the validator refuses are sent back ONCE with the allowed set
 # listed (`03` §4 stage 6 step 3: "retried once, then EMPTY"). This is the
 # value-level retry; the JSON-shape retry is the client's own (`04` §7).

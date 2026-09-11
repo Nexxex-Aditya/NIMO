@@ -14,7 +14,7 @@ from typing import Any
 import structlog
 from pydantic import BaseModel, ConfigDict
 
-from nimo.characteristics.config import CharacteristicsConfig
+from nimo.characteristics.config import CharacteristicsConfig, PracticeDefault
 from nimo.characteristics.gate import applicable_rules, empty_values, gate_only
 from nimo.characteristics.validate import Validation, validate
 from nimo.contracts import (
@@ -121,9 +121,15 @@ def evidence_block(evidence: CandidateEvidence | None, config: CharacteristicsCo
     return header + ("\n" + "\n".join(blocks) if blocks else "\n(the page yielded no text)")
 
 
-def characteristics_block(rules: list[CharacteristicRule], guidelines: dict[str, str]) -> str:
+def characteristics_block(
+    rules: list[CharacteristicRule],
+    guidelines: dict[str, str],
+    practice_defaults: dict[str, PracticeDefault] | None = None,
+) -> str:
     """One section per applicable characteristic: kind, allowed values for a
-    closed one, and the guideline verbatim."""
+    closed one, the guideline verbatim, and — where the labelled data's
+    practice differs from the written default — the measured practice
+    default with its evidence (`specs/characteristics.md` §2a)."""
     sections: list[str] = []
     for rule in rules:
         text = guidelines.get(f"{rule.module}\t{rule.characteristic}", "")
@@ -133,6 +139,13 @@ def characteristics_block(rules: list[CharacteristicRule], guidelines: dict[str,
         else:
             lines.append("example values: " + " | ".join(rule.allowed_values[:12]))
         lines.append("guideline: " + (text.strip() or "(no guideline text provided)"))
+        default = (practice_defaults or {}).get(rule.characteristic)
+        if default is not None:
+            lines.append(
+                f"practice default (measured on the labelled data; use it when the evidence "
+                f"is silent, even where the guideline names another default): "
+                f"{default.value} — {default.evidence}"
+            )
         sections.append("\n".join(lines))
     return "\n\n".join(sections)
 
@@ -170,7 +183,9 @@ class CharacteristicExtractor:
             query=query_block(query),
             module=module,
             evidence=evidence_block(evidence, self.config),
-            characteristics=characteristics_block(applicable, self.guidelines),
+            characteristics=characteristics_block(
+                applicable, self.guidelines, self.config.practice_defaults
+            ),
             expected_keys=json.dumps([rule.characteristic for rule in applicable]),
         )
         answer = self._ask(user)

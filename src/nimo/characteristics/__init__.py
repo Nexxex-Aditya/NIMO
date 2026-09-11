@@ -7,6 +7,7 @@ from nimo.characteristics.config import (
     CONFIG_PATH,
     CharacteristicsConfig,
     CharacteristicsConfigError,
+    PracticeDefault,
     load_characteristics_config,
 )
 from nimo.characteristics.evaluate import (
@@ -42,6 +43,7 @@ __all__ = [
     "CharacteristicExtractor",
     "CharacteristicsConfig",
     "CharacteristicsConfigError",
+    "PracticeDefault",
     "Validation",
     "accuracy_report",
     "applicability_report",

@@ -14,6 +14,17 @@ class CharacteristicsConfigError(Exception):
 
 
 @dataclass(frozen=True)
+class PracticeDefault:
+    """The value the labelled data uses when the evidence is silent, where
+    that differs from (or is absent from) the guideline's written default.
+    Measured on `dev`; `evidence` is the measurement, rendered into the
+    prompt so the model sees why (`specs/characteristics.md` §2a)."""
+
+    value: str
+    evidence: str
+
+
+@dataclass(frozen=True)
 class CharacteristicsConfig:
     body_text_chars: int
     use_image_evidence: bool
@@ -21,6 +32,7 @@ class CharacteristicsConfig:
     excerpt_prefix_chars: int
     excerpt_window_chars: int
     excerpt_anchor_terms: tuple[str, ...]
+    practice_defaults: dict[str, PracticeDefault]  # characteristic -> default; str keys
 
 
 @lru_cache(maxsize=1)
@@ -71,4 +83,34 @@ def load_characteristics_config(path: Path = CONFIG_PATH) -> CharacteristicsConf
         excerpt_prefix_chars=prefix,
         excerpt_window_chars=window,
         excerpt_anchor_terms=tuple(a.lower() for a in anchors),
+        practice_defaults=_practice_defaults(data, path),
     )
+
+
+def _practice_defaults(data: dict[str, object], path: Path) -> dict[str, PracticeDefault]:
+    raw = data.get("practice_defaults")
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise CharacteristicsConfigError(f"{path}: `practice_defaults` must be a mapping.")
+    out: dict[str, PracticeDefault] = {}
+    for name, entry in raw.items():
+        if not isinstance(name, str) or not name.startswith("GLOBAL_"):
+            raise CharacteristicsConfigError(
+                f"{path}: `practice_defaults` key {name!r} is not a characteristic column."
+            )
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("value"), str)
+            or not entry["value"].strip()
+            or not isinstance(entry.get("evidence"), str)
+            or not entry["evidence"].strip()
+        ):
+            raise CharacteristicsConfigError(
+                f"{path}: `practice_defaults.{name}` needs non-empty `value` and `evidence` "
+                f"strings — a default without its measurement is a guess (`04` §9)."
+            )
+        out[name] = PracticeDefault(
+            value=entry["value"].strip(), evidence=" ".join(entry["evidence"].split())
+        )
+    return out
