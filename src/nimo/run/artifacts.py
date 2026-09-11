@@ -12,6 +12,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from nimo.contracts import CharacteristicValues
+
 # The stage sequence the runner drives today. Ordered, and a subset of
 # `RowFailure.stage`'s Literal — the stages that do not exist yet are simply
 # absent, so adding one later is adding a name here and a call in the runner.
@@ -111,6 +113,24 @@ def is_row_complete(root: Path, row_uid: str, stages: tuple[str, ...] = STAGE_SE
 
 def completed_row_uids(root: Path, row_uids: list[str]) -> set[str]:
     return {row_uid for row_uid in row_uids if is_row_complete(root, row_uid)}
+
+
+def values_missing(root: Path, row_uid: str) -> bool:
+    """Whether a COMPLETE row's characteristics were never extracted.
+
+    The one place the resume path parses an artifact, and only when the run
+    extracts values (`Stages.extracts_values`): a `gate_only` artifact, or a
+    `registry` one carrying no values (served from an entity that had none),
+    is stale under such a run — the model was never asked for this row. An
+    `llm` artifact with every value `None` is NOT stale: the model was asked
+    and found no evidence. ~400 small reads, once per resume.
+
+    Measured 2026-09-12: without this, the 111 qa rows served empty values
+    by the gate-only registry were "complete" and no re-run could reach them.
+    """
+    path = artifact_path(root, "characteristics", row_uid)
+    values = CharacteristicValues.model_validate_json(path.read_text(encoding="utf-8"))
+    return values.source != "llm" and all(value is None for value in values.values.values())
 
 
 def config_hash(config_dir: Path) -> str:

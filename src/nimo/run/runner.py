@@ -42,6 +42,7 @@ from nimo.run.artifacts import (
     clear_artifacts,
     completed_row_uids,
     config_hash,
+    values_missing,
     write_artifact,
 )
 
@@ -119,6 +120,13 @@ class Stages:
         ],
         Reasoning,
     ]
+    # `True` when `characteristics` asks the model (an extractor is wired).
+    # Decides two things a hit on an entity WITHOUT stored values needs:
+    # whether to extract now (fetching the entity's own page as evidence) and
+    # refresh the entity, and whether a complete row on disk whose values
+    # were never extracted is stale. Measured 2026-09-12: with this `False`
+    # by construction, 111 of 409 submitted rows carried no values at all.
+    extracts_values: bool = False
 
 
 def offline_stages(
@@ -264,9 +272,19 @@ def process_row(
         registry_result = stages.registry(query)
         entity = registry_result.entity
         stored = _module_from_hit(row.row_uid, registry_result)
+        # A hit on an entity that has no stored values, in a run that
+        # extracts them: the entity is incomplete for THIS run's purposes
+        # even when it has a module (the 2026-09-11 rebuild was gate-only, so
+        # every entity had a module and none had values).
+        needs_values = (
+            registry_result.hit
+            and stages.extracts_values
+            and entity is not None
+            and not entity.characteristics
+        )
         if registry_result.hit:
             selection = _selection_from_hit(registry_result)
-            if stored is None and entity is not None and entity.resolved_url:
+            if entity is not None and entity.resolved_url and (stored is None or needs_values):
                 # An incomplete entity: fetch its own page so the stages
                 # below have evidence. One URL, no search budget.
                 stage = "fetch"
@@ -281,7 +299,7 @@ def process_row(
         stage = "classify"
         prediction = stored if stored is not None else stages.classify(query)
         stage = "characteristics"
-        if stored is not None and entity is not None and rules is not None:
+        if stored is not None and entity is not None and rules is not None and not needs_values:
             # `03` §4 stage 6, last paragraph: a registry hit carries the
             # stored values; the gate was applied when they were written.
             values = from_entity(row.row_uid, entity, rules)
@@ -292,7 +310,7 @@ def process_row(
             # After classify + characteristics, so the entity carries both
             # (`specs/characteristics.md` §5). Still GTIN-accept only inside.
             wrote_back = stages.writeback(query, best, prediction.module, values)
-        elif stored is None and entity is not None:
+        elif entity is not None and (stored is None or needs_values):
             wrote_back = stages.refresh(query, entity, prediction.module, values)
         stage = "reason"
         reasoning = stages.reason(query, registry_result, selection, prediction, values, evidence)
@@ -429,6 +447,11 @@ def run(
     fingerprint = config_hash(paths.config_dir)
 
     already_done = completed_row_uids(paths.artifacts, [row.row_uid for row in rows])
+    if stages.extracts_values:
+        # A complete row whose values were never extracted (a gate-only run,
+        # or a hit served from an entity that had none) is stale under a run
+        # that extracts them — re-run it; search, pages and answers are cached.
+        already_done = {uid for uid in already_done if not values_missing(paths.artifacts, uid)}
     failures: list[RowFailure] = []
     tier_counts: Counter[str] = Counter()
     succeeded = 0

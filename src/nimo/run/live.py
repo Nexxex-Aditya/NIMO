@@ -270,6 +270,7 @@ def live_stages(
         writeback=writer.write_back,
         classify=classifier.predict,
         characteristics=characteristics,
+        extracts_values=extractor is not None,
         refresh=writer.refresh,
         reason=lambda query, registry, selection, module, values, evidence: compose(
             query, registry, selection, module, values, evidence, reason_config

@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from nimo.characteristics import CHARACTERISTIC_COLUMNS
 from nimo.classify import load_classify_config
 from nimo.classify.model import ModuleClassifier
 from nimo.contracts import (
@@ -340,9 +341,132 @@ def test_a_registry_hit_without_a_stored_module_falls_through_to_the_classifier(
     assert '"wrote_back": true' in trace
 
 
+def _valued(row_uid: str, module: str | None) -> CharacteristicValues:
+    """What an extractor returns: one model-sourced value."""
+    values: dict[str, str | None] = {name: None for name in CHARACTERISTIC_COLUMNS}
+    values["GLOBAL_PERCENTAGE_NATURAL_INGREDIENTS"] = "NOT STATED"
+    return CharacteristicValues(
+        row_uid=row_uid,
+        module=module,
+        values=values,
+        applicable=["GLOBAL_PERCENTAGE_NATURAL_INGREDIENTS"],
+        rejected={},
+        source="llm",
+        prompt_hash="p",
+        model="m",
+    )
+
+
+def test_a_hit_on_an_entity_without_values_extracts_and_refreshes_when_the_run_extracts(
+    dev_rows: list[RawRow], stages: Stages, tmp_path: Path
+) -> None:
+    """Measured 2026-09-12: the gate-only registry rebuild left every entity
+    with a module and no values, and the office run served those 111 rows
+    EMPTY. In a run that extracts values, such a hit is incomplete: fetch
+    the entity's own page, extract, refresh the entity with the values."""
+    entity = CanonicalEntity(
+        entity_id="gtin:module-only",
+        barcode="5014697056627",
+        brand="AQUAFRESH",
+        size_ml_equiv=100.0,
+        size_g_equiv=None,
+        count=1,
+        variant_terms=["whitening"],
+        module="TOOTH CLEANING - FOAM/GEL/LIQUID/PASTE (NATURAL TEETH)",
+        resolved_url="https://boots.com/p",
+        page_title="p",
+        characteristics={},
+        confidence=1.0,
+        member_row_uids=["qa:5"],
+        resolution_tier="tier2_retrieval",
+        created_at=FIXED_TS,
+        updated_at=FIXED_TS,
+    )
+    hit = RegistryLookupResult(hit=True, tier="tier0_exact", entity=entity, similarity=None)
+    touched: list[str] = []
+    refreshed: list[CharacteristicValues] = []
+
+    def refresh(
+        query: ProductQuery,
+        found: CanonicalEntity,
+        module: str | None,
+        values: CharacteristicValues,
+    ) -> bool:
+        refreshed.append(values)
+        return True
+
+    extracting = replace(
+        stages,
+        registry=lambda query: hit,
+        fetch=lambda candidates: touched.append(candidates[0].url) or [],  # type: ignore[func-returns-value]
+        characteristics=lambda query, module, evidence: _valued(query.row_uid, module),
+        refresh=refresh,
+        extracts_values=True,
+    )
+    paths = paths_in(tmp_path)
+    summary = run(
+        dev_rows[:1], extracting, paths, "r", fixed_clock, rules=load_characteristic_rules(WORKBOOK)
+    )
+    assert summary.rows_succeeded == 1
+    assert touched == ["https://boots.com/p"]  # the entity's own page, one URL
+    assert len(refreshed) == 1 and refreshed[0].source == "llm"
+    written = artifact_path(paths.artifacts, "characteristics", "dev:0").read_text(encoding="utf-8")
+    assert '"source":"llm"' in written and '"NOT STATED"' in written
+    module = artifact_path(paths.artifacts, "classify", "dev:0").read_text(encoding="utf-8")
+    assert '"source":"registry"' in module  # the stored module is still trusted
+
+
+def test_a_hit_on_an_entity_with_values_is_served_even_when_the_run_extracts(
+    dev_rows: list[RawRow], stages: Stages, tmp_path: Path
+) -> None:
+    entity = CanonicalEntity(
+        entity_id="gtin:valued",
+        barcode="5014697056627",
+        brand="AQUAFRESH",
+        size_ml_equiv=100.0,
+        size_g_equiv=None,
+        count=1,
+        variant_terms=["whitening"],
+        module="TOOTH CLEANING - FOAM/GEL/LIQUID/PASTE (NATURAL TEETH)",
+        resolved_url="https://boots.com/p",
+        page_title="p",
+        characteristics={"GLOBAL_IF_WITH_FLUORIDE": "WITH FLUORIDE"},
+        confidence=1.0,
+        member_row_uids=["qa:5"],
+        resolution_tier="tier2_retrieval",
+        created_at=FIXED_TS,
+        updated_at=FIXED_TS,
+    )
+    hit = RegistryLookupResult(hit=True, tier="tier0_exact", entity=entity, similarity=None)
+    touched: list[str] = []
+
+    def extract(query: ProductQuery, module: str | None, evidence: object) -> CharacteristicValues:
+        touched.append("extract")
+        return _valued(query.row_uid, module)
+
+    run(
+        dev_rows[:1],
+        replace(
+            stages,
+            registry=lambda query: hit,
+            fetch=lambda candidates: touched.append("fetch") or [],  # type: ignore[func-returns-value]
+            characteristics=extract,
+            refresh=lambda query, found, module, values: touched.append("refresh") or True,  # type: ignore[func-returns-value]
+            extracts_values=True,
+        ),
+        paths_in(tmp_path),
+        "r",
+        fixed_clock,
+        rules=load_characteristic_rules(WORKBOOK),
+    )
+    assert touched == []
+
+
 def test_a_complete_entity_hit_neither_fetches_nor_refreshes(
     dev_rows: list[RawRow], stages: Stages, tmp_path: Path
 ) -> None:
+    """A gate-only run (`extracts_values=False`) cannot complete an entity,
+    so it does not try: no fetch, no refresh, values from the entity."""
     entity = CanonicalEntity(
         entity_id="gtin:done",
         barcode="5014697056627",
@@ -377,6 +501,44 @@ def test_a_complete_entity_hit_neither_fetches_nor_refreshes(
         rules=load_characteristic_rules(WORKBOOK),
     )
     assert touched == []
+
+
+def test_resume_re_runs_rows_whose_values_were_never_extracted(
+    dev_rows: list[RawRow], stages: Stages, tmp_path: Path
+) -> None:
+    """A tree written gate-only is complete for a gate-only run and STALE for
+    a run that extracts values; an `llm`-sourced row is complete for both."""
+    paths = paths_in(tmp_path)
+    rows = dev_rows[:4]
+    run(rows, stages, paths, "gate-only", fixed_clock)  # every row gate_only
+
+    asked: list[str] = []
+
+    def extracting(
+        query: ProductQuery, module: str | None, evidence: object
+    ) -> CharacteristicValues:
+        asked.append(query.row_uid)
+        return _valued(query.row_uid, module)
+
+    with_model = replace(stages, characteristics=extracting, extracts_values=True)
+    summary = run(rows, with_model, paths, "with-model", fixed_clock)
+    assert summary.rows_succeeded == 4
+    assert asked == [row.row_uid for row in rows]  # all four re-run
+
+    asked.clear()
+    run(rows, with_model, paths, "again", fixed_clock)
+    assert asked == []  # now llm-sourced: complete, skipped
+
+    # And a gate-only run over the llm-sourced tree skips them too — it
+    # cannot improve on them (`extracts_values=False` parses nothing).
+    counted: list[str] = []
+
+    def counting(query: ProductQuery) -> RegistryLookupResult:
+        counted.append(query.row_uid)
+        return stages.registry(query)
+
+    run(rows, replace(stages, registry=counting), paths, "gate-again", fixed_clock)
+    assert counted == []
 
 
 # --- resume ------------------------------------------------------------------

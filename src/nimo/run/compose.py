@@ -145,6 +145,7 @@ class Pipeline:
                     characteristics=lambda query, module, evidence: record_only.extract(
                         query, module, None
                     ),
+                    extracts_values=True,
                 )
             return cls(
                 live=False,
