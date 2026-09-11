@@ -526,3 +526,69 @@ def test_abstention_needs_a_curve_and_a_positive_tau() -> None:
     abstained, ranked = select(subject, [weak], CONFIG, None, curve, 0.9)
     assert abstained.url is None and len(ranked) == 1
     assert ranked[0].features.calibrated_prob < 0.9
+
+
+# --- directory domains and the added listing shapes (measured on the full qa run) ---
+
+
+def test_a_barcode_directory_is_demoted_not_rejected() -> None:
+    """70 of 412 qa selections were `grocefully.com`, `buycott.com` or
+    `prodlookup.co.uk` — pages about the product, not the product's page.
+    Demoted so a retailer page wins when one was fetched; still selectable
+    when nothing else was."""
+    subject = query()
+    directory = page(
+        url="https://www.buycott.com/upc/5014697056627",
+        title="Aquafresh Whitening Pump Toothpaste 100ml",
+    )
+    retailer = page(url="https://boots.com/p", title="Aquafresh Whitening Pump Toothpaste 100ml")
+    selection, ranked = select(subject, [directory, retailer], CONFIG)
+    assert selection.url == "https://boots.com/p"
+    flagged = next(item for item in ranked if "buycott" in item.evidence.url)
+    assert "directory" in flagged.features.negative_flags and not flagged.rejected
+    alone, _ = select(subject, [directory], CONFIG)
+    assert alone.url == directory.url  # demoted, never rejected
+
+
+def test_directory_match_is_by_host_suffix_not_substring() -> None:
+    subject = query()
+    lookalike = page(
+        url="https://notbuycott.com/p", title="Aquafresh Whitening Pump Toothpaste 100ml"
+    )
+    subdomain = page(
+        url="https://shop.buycott.com/p", title="Aquafresh Whitening Pump Toothpaste 100ml"
+    )
+    assert "directory" not in compute_features(subject, lookalike, CONFIG).negative_flags
+    assert "directory" in compute_features(subject, subdomain, CONFIG).negative_flags
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://ebay.co.uk/shop/poligrip?_nkw=poligrip",
+        "https://ebay.com/b/Binaca/260781/bn_7023344978",
+        "https://dentocareprofessional.co.uk/collections/aquafresh",
+    ],
+)
+def test_added_listing_shapes_are_demoted(url: str) -> None:
+    subject = query()
+    features = compute_features(subject, page(url=url, title="Aquafresh 100ml"), CONFIG)
+    assert "listing_page" in features.negative_flags
+
+
+def test_among_gtin_confirmed_pages_the_retailer_beats_the_directory() -> None:
+    """Both publish the GTIN, both score 1.0 under the hard rule; the tie
+    used to fall to alphabetical URL (`buycott.com` < `colgate.com`). The
+    directory still beats a retailer page WITHOUT the GTIN — identifier
+    first, page type second."""
+    subject = query(barcode="5014697056627")
+    directory = page(
+        url="https://buycott.com/upc/5014697056627", title="Aquafresh 100ml", gtin="5014697056627"
+    )
+    retailer = page(url="https://colgate.com/p", title="Aquafresh 100ml", gtin="5014697056627")
+    no_gtin = page(url="https://aquafresh.com/p", title="Aquafresh Whitening Pump Toothpaste 100ml")
+    selection, ranked = select(subject, [directory, retailer, no_gtin], CONFIG)
+    assert selection.url == "https://colgate.com/p"
+    assert [item.evidence.url for item in ranked][:2] == ["https://colgate.com/p", directory.url]
+    only_directory, _ = select(subject, [directory, no_gtin], CONFIG)
+    assert only_directory.url == directory.url

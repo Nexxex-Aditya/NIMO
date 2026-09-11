@@ -158,12 +158,31 @@ def rank_candidates(
     is a finding, not noise." The same applies to a GTIN-rejected candidate:
     dropping it loses the evidence that we looked and found a conflict.
 
-    Ties break on URL so the ranking is deterministic (`04` §5).
+    **Among equal scores, a page that is not a directory or listing wins.**
+    Measured on the full qa run: a barcode directory publishing the right
+    GTIN scores 1.0 under the hard rule, exactly like the retailer page
+    beside it, and the tie fell to alphabetical URL — `buycott.com` beat
+    `colgate.com` on 24 rows. Identifier first, page type second: the
+    directory still beats a page with no GTIN. Then URL, so the ranking is
+    deterministic (`04` §5).
     """
     scored = [
         score_candidate(query, evidence, config, retailer_domain, curve) for evidence in candidates
     ]
-    return sorted(scored, key=lambda item: (item.rejected, -item.score, item.evidence.url))
+    return sorted(
+        scored,
+        key=lambda item: (
+            item.rejected,
+            -item.score,
+            _is_about_not_of(item),
+            item.evidence.url,
+        ),
+    )
+
+
+def _is_about_not_of(item: ScoredCandidate) -> bool:
+    """A directory or listing page is *about* the product, not *of* it."""
+    return any(flag in ("directory", "listing_page") for flag in item.features.negative_flags)
 
 
 def select(

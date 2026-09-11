@@ -99,6 +99,38 @@ listing_url_patterns:
   - "/sr?"           # ebay-style
   - "/sch/"          # ebay search
   - "/b/bn_"         # ebay category browse — qa:2 fell through to one once amazon's listing was demoted
+  # Added 2026-09-11 from the full qa run's 412 selections:
+  - "_nkw="          # ebay shop search (`/shop/poligrip?_nkw=poligrip`) — 4 selections
+  - "/bn_"           # ebay browse node anywhere in the path (`/b/Binaca/260781/bn_7023344978`)
+  - "/collections/"  # shopify collection listing (`/collections/aquafresh`) — 6 selections
+
+# --- Directory and price-comparison domains -----------------------------------
+#
+# Pages ABOUT the product that are not the product's page: barcode
+# directories and price aggregators. They publish the GTIN — which is why
+# the matcher likes them and why they still count as calibration evidence —
+# but a retailer or manufacturer page is the digital representation the brief
+# asks for. Measured on the full qa run: 70 of 412 selections (17%) were
+# `grocefully.com` (39), `buycott.com` (24) or `prodlookup.co.uk` (7).
+# DEMOTED through the same `directory` flag machinery as `refill`, never
+# rejected: when no retailer page was fetched, the directory page still wins.
+# Host suffix match, so subdomains count.
+directory_domains:
+  - buycott.com
+  - grocefully.com
+  - prodlookup.co.uk
+  - barcodelookup.com
+  - barcodeindex.com
+  - upcitemdb.com
+  - go-upc.com
+  - ean-search.org
+  - barcode-list.com
+  - 123pricecheck.com
+  - pricerunner.com
+  - idealo.co.uk
+  - pricespy.co.uk
+  - callchecker.co.uk
+  - cosmos.bluesoft.com.br   # surfaced by the rescoring itself (`qa:4`)
 
 # --- Page-side parsing -----------------------------------------------------
 #

@@ -214,6 +214,13 @@ def negative_flags(query: ProductQuery, text: str, config: MatchConfig, url: str
     lowered_url = url.lower()
     if any(pattern in lowered_url for pattern in config.listing_url_patterns):
         flags.append("listing_page")
+    host = urlsplit(lowered_url).netloc
+    if host and any(
+        host == domain or host.endswith("." + domain) for domain in config.directory_domains
+    ):
+        # A barcode directory or price aggregator: about the product, not the
+        # product's page. Measured at 17% of qa selections (`config/match.yaml`).
+        flags.append("directory")
     return sorted(flags)
 
 
