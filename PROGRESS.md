@@ -9,20 +9,18 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: P13 (reasoning) — NOT STARTED
-Last completed milestone: P12 (characteristics) — **built and fixture-tested;
-validator and applicability measured on dev; per-characteristic accuracy NOT
-measured** (needs the NIQ network: `--live --characteristics`, then
-`uv run python -m nimo.characteristics --evaluate data/out/artifacts/dev`).
-P11's gate is likewise open (`specs/adjudicate.md` §8). Both run on the
-office laptop; `src/nimo/llm/azure.py` is the only unverified code.
-Next milestone: P13. Authority: `03` §4 stage 7 (grounded synthesis — every
-factual claim traces to a `CandidateEvidence`/`MatchFeatures`/
-`CharacteristicValues`/`AdjudicationVerdict` field; a registry-resolved row
-says so plainly), `04` §8 (groundedness fixture test is the gate), `05` §1
-(`REASONING` is the exposed free-text surface — nothing downstream may read
-it back into a prompt). Reuse `nimo.llm`; the runner's stage sequence gains
-`reason` (7 -> 8 stages) — existing artifact trees re-run from cache.
+Phase: P14 (assembly) — NOT STARTED
+Last completed milestone: P13 (reasoning) — done, gate met; composed from the
+record, never generated. P11's delta and P12's per-characteristic accuracy
+remain unmeasured off-network (`specs/adjudicate.md` §8,
+`specs/characteristics.md` §6); `src/nimo/llm/azure.py` is the only
+unverified code.
+Next milestone: P14. Authority: `03` §4 stage 8 (exact `qa` header, order,
+row order; `EXTERNAL_CODE` as text — `01` §3; None → empty cell, nothing
+else; `trace.jsonl` with `resolution_tier`), `03` §3 `OutputRow`, `01` §10
+#7, `04` §5 (twice-run byte-identical is a CI test), `05` §5 (type coercion
+across the output write — assert on write). Reads the runner's eight
+artifact trees; no network.
 
 **THE NUMBER THAT MATTERS FOR PLANNING:** the full pipeline works end to end
 (registry write-backs are firing at ~1 in 4 rows on the running harvest). **No paid search key
@@ -63,16 +61,17 @@ fit takes over automatically once >=30 pairs exist — the harvest is
 
 ## Verified state (re-check on resume, don't trust blindly)
 
-Last `make check`: PASS as of the P12 commit. `make` is absent on
+Last `make check`: PASS as of the P13 commit. `make` is absent on
 this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (683 passed)
+  uv run pytest                          -> EXIT 0  (704 passed)
 
 ## Do NOT re-do
 
-- P0–P12: done (P7's recall gate open; P10's curve unfitted; P11's delta and P12's accuracy unmeasured off-network — all stated), gates verified by execution where they can be, committed.
+- P0–P13: done (P7's recall gate open; P10's curve unfitted; P11's delta and P12's accuracy unmeasured off-network — all stated), gates verified by execution where they can be, committed.
+- **P13: REASONING is COMPOSED from the typed record, never generated.** `03` §1 and §4 stage 7 say so now. Don't add a model call that can introduce claims; a style pass, if ever wanted, goes after the composed text and never replaces it. The runner has EIGHT stages.
 - **P12: the applicability gate is OURS, applied before and after the model.** `values` always has all 13 keys; a volunteered non-applicable value is dropped. Closed values validate per `&` component — the validator reproduces `01` §11's exact counts on dev (1,719 / 2 GLASS / 187 joined), pinned. Don't switch to whole-string.
 - **P12: write-back runs AFTER classify + characteristics** so entities carry both; a hit with `module=None` (pre-P12 entity) falls through to the classifier. The runner has SEVEN stages now; six-stage artifact trees re-run from cache on resume — expected, not a bug.
 - **P11: `AdjudicationVerdict.choice` is an INDEX into the pack, never a URL** — the schema has no URL field on purpose (`05` §1). Don't add one. A GTIN accept is never adjudicated; write-back ignores the model; a rejected verdict keeps Layer A's pick, a spent budget aborts the run.

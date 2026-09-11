@@ -48,6 +48,7 @@ from nimo.loader import (
 )
 from nimo.match import Adjudicator, load_match_config
 from nimo.normalize import normalize_rows
+from nimo.reason import load_reason_config
 from nimo.registry import build_index, fit_identity_idf, load_thresholds, read_entities
 from nimo.retrieval import SearxngClient, default_cache, load_retrieval_config
 from nimo.run.live import RegistryWriter, live_stages
@@ -111,7 +112,7 @@ def main(argv: list[str]) -> int:
     llm_counter = LlmCounter()
 
     if not live:
-        stages = offline_stages(index, thresholds, classifier, rules)
+        stages = offline_stages(index, thresholds, classifier, rules, load_reason_config())
         summary = run(rows, stages, paths, run_id, cache_counter=counter, rules=rules)
     else:
         rcfg = load_retrieval_config()
@@ -178,6 +179,7 @@ def main(argv: list[str]) -> int:
                 writer=writer,
                 cache_counter=counter,
                 rules=rules,
+                reason_config=load_reason_config(),
                 adjudicator=adjudicator,
                 extractor=extractor,
             )

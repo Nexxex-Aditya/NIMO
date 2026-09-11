@@ -144,6 +144,14 @@ class CharacteristicValues(BaseModel):  # P12 — stage [6] output, `specs/chara
     model: str | None
 
 
+class Reasoning(BaseModel):  # P13 — stage [7] output, `specs/reason.md` §1
+    model_config = ConfigDict(frozen=True)
+
+    row_uid: str
+    text: str  # the REASONING cell — composed from fields, never generated
+    claims: list[str]  # one provenance tag per clause, naming the field it came from
+
+
 class RowFailure(BaseModel):  # P6a — the batch runner's typed failure record
     model_config = ConfigDict(frozen=True)
 

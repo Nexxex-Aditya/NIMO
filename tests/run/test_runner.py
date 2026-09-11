@@ -26,6 +26,7 @@ from nimo.contracts import (
 from nimo.loader import load_characteristic_rules, load_module_labels, load_rows
 from nimo.match import ScoredCandidate
 from nimo.normalize import normalize_rows
+from nimo.reason import load_reason_config
 from nimo.registry import build_index, fit_identity_idf, load_thresholds
 from nimo.run import (
     STAGE_SEQUENCE,
@@ -66,7 +67,7 @@ def stages(dev_rows: list[RawRow]) -> Stages:
         queries, load_module_labels(WORKBOOK, "dev", rules), load_classify_config()
     )
     index = build_index([], fit_identity_idf(queries))
-    return offline_stages(index, load_thresholds(), classifier, rules)
+    return offline_stages(index, load_thresholds(), classifier, rules, load_reason_config())
 
 
 def paths_in(tmp_path: Path) -> RunPaths:

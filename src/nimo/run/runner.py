@@ -25,6 +25,7 @@ from nimo.contracts import (
     ModulePrediction,
     ProductQuery,
     RawRow,
+    Reasoning,
     RegistryLookupResult,
     RowFailure,
     RunSummary,
@@ -33,6 +34,7 @@ from nimo.contracts import (
 from nimo.llm import LlmCounter
 from nimo.match import ScoredCandidate
 from nimo.normalize import normalize_row
+from nimo.reason import ReasonConfig, compose
 from nimo.registry import RegistryIndex, RegistryThresholds, lookup
 from nimo.run.artifacts import (
     STAGE_SEQUENCE,
@@ -60,6 +62,7 @@ class RowArtifacts:
     selection: Selection
     module: ModulePrediction
     characteristics: CharacteristicValues
+    reasoning: Reasoning
     wrote_back: bool
 
 
@@ -98,6 +101,18 @@ class Stages:
     characteristics: Callable[
         [ProductQuery, str | None, CandidateEvidence | None], CharacteristicValues
     ]
+    # The REASONING cell, composed from the row's record (`specs/reason.md`).
+    reason: Callable[
+        [
+            ProductQuery,
+            RegistryLookupResult,
+            Selection,
+            ModulePrediction,
+            CharacteristicValues,
+            list[CandidateEvidence],
+        ],
+        Reasoning,
+    ]
 
 
 def offline_stages(
@@ -105,6 +120,7 @@ def offline_stages(
     thresholds: RegistryThresholds,
     classifier: ModuleClassifier,
     rules: list[CharacteristicRule],
+    reason_config: ReasonConfig,
 ) -> Stages:
     """Stages with NO network: retrieval yields nothing, fetch and match are
     empty, characteristics is gate-only. Used by tests (`04` §6) and by a
@@ -119,6 +135,9 @@ def offline_stages(
         writeback=lambda query, best, module, values: False,
         classify=classifier.predict,
         characteristics=lambda query, module, evidence: gate_only(query.row_uid, module, rules),
+        reason=lambda query, registry, selection, module, values, evidence: compose(
+            query, registry, selection, module, values, evidence, reason_config
+        ),
     )
 
 
@@ -203,7 +222,14 @@ def process_row(
     # assignment to the cursor against the stage names `RowFailure`
     # accepts — a typo here would otherwise reach the record as data.
     stage: Literal[
-        "normalize", "registry", "retrieve", "fetch", "match", "classify", "characteristics"
+        "normalize",
+        "registry",
+        "retrieve",
+        "fetch",
+        "match",
+        "classify",
+        "characteristics",
+        "reason",
     ] = "normalize"
     candidates: list[CandidateURL] = []
     evidence: list[CandidateEvidence] = []
@@ -238,6 +264,8 @@ def process_row(
             # After classify + characteristics, so the entity carries both
             # (`specs/characteristics.md` §5). Still GTIN-accept only inside.
             wrote_back = stages.writeback(query, best, prediction.module, values)
+        stage = "reason"
+        reasoning = stages.reason(query, registry_result, selection, prediction, values, evidence)
     except Exception as error:  # noqa: BLE001 — `04` §4's one sanctioned site
         if isinstance(error, abort_on):
             # `05` §3: a spent LLM budget aborts the RUN with a clear failure.
@@ -260,6 +288,7 @@ def process_row(
         selection=selection,
         module=prediction,
         characteristics=values,
+        reasoning=reasoning,
         wrote_back=wrote_back,
     )
 
@@ -272,6 +301,7 @@ def _persist(paths: RunPaths, artifacts: RowArtifacts) -> None:
     write_artifact(paths.artifacts, "match", artifacts.row_uid, artifacts.selection)
     write_artifact(paths.artifacts, "classify", artifacts.row_uid, artifacts.module)
     write_artifact(paths.artifacts, "characteristics", artifacts.row_uid, artifacts.characteristics)
+    write_artifact(paths.artifacts, "reason", artifacts.row_uid, artifacts.reasoning)
 
 
 def _trace_record(artifacts: RowArtifacts, run_id: str, config_fingerprint: str) -> str:
@@ -318,6 +348,8 @@ def _trace_record(artifacts: RowArtifacts, run_id: str, config_fingerprint: str)
             1 for value in artifacts.characteristics.values.values() if value is not None
         ),
         "characteristics_rejected": len(artifacts.characteristics.rejected),
+        "reasoning_chars": len(artifacts.reasoning.text),
+        "reasoning_claims": list(artifacts.reasoning.claims),
     }
     return json.dumps(record, sort_keys=True)
 

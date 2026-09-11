@@ -51,6 +51,7 @@ from nimo.match import (
     select,
     should_adjudicate,
 )
+from nimo.reason import ReasonConfig, compose
 from nimo.registry import (
     RegistryIndex,
     RegistryThresholds,
@@ -131,6 +132,7 @@ def live_stages(
     writer: RegistryWriter,
     cache_counter: CacheCounter,
     rules: list[CharacteristicRule],
+    reason_config: ReasonConfig,
     adjudicator: Adjudicator | None = None,
     extractor: CharacteristicExtractor | None = None,
 ) -> Stages:
@@ -208,4 +210,7 @@ def live_stages(
         writeback=writer.write_back,
         classify=classifier.predict,
         characteristics=characteristics,
+        reason=lambda query, registry, selection, module, values, evidence: compose(
+            query, registry, selection, module, values, evidence, reason_config
+        ),
     )

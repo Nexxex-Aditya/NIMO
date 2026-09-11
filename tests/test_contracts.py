@@ -32,6 +32,7 @@ from nimo.contracts import (
     OutputRow,
     ProductQuery,
     RawRow,
+    Reasoning,
     RegistryLookupResult,
     RowFailure,
     RunSummary,
@@ -256,6 +257,15 @@ CHARACTERISTIC_VALUES = CharacteristicValues(
     model="hack-fest-gpt-5.6-luna",
 )
 
+REASONING = Reasoning(
+    row_uid="dev:0",
+    text=(
+        "The selected page (boots.com) publishes EAN 5014697056627, equal to the record's "
+        "barcode. Coded: GLOBAL_IF_WITH_FLUORIDE = WITH FLUORIDE."
+    ),
+    claims=["selection.gtin_exact", "characteristics.GLOBAL_IF_WITH_FLUORIDE"],
+)
+
 ADJUDICATION_VERDICT = AdjudicationVerdict(
     choice=2,
     decisive_fields=["gtin", "size"],
@@ -311,6 +321,7 @@ ALL_MODELS: list[tuple[str, BaseModel]] = [
     ("CanonicalEntity", CANONICAL_ENTITY),
     ("ModulePrediction", MODULE_PREDICTION),
     ("CharacteristicValues", CHARACTERISTIC_VALUES),
+    ("Reasoning", REASONING),
     ("RowFailure", ROW_FAILURE),
     ("RunSummary", RUN_SUMMARY),
     ("GoldUrl", GOLD_URL),
@@ -355,7 +366,7 @@ QA_HEADER: list[str] = [
 
 def test_every_contract_model_is_covered() -> None:
     """Guards the parametrized list itself against a silently-dropped model."""
-    assert len(ALL_MODELS) == 20
+    assert len(ALL_MODELS) == 21
 
 
 @pytest.mark.parametrize("name,instance", ALL_MODELS, ids=[n for n, _ in ALL_MODELS])
@@ -512,7 +523,7 @@ def test_contracts_match_architecture_section_3_field_for_field() -> None:
     `contracts.py` to match — do not relax the test.
     """
     spec = _parse_architecture_section_3()
-    assert len(spec) == 20, f"expected 20 classes in `03` §3, parsed {len(spec)}"
+    assert len(spec) == 21, f"expected 21 classes in `03` §3, parsed {len(spec)}"
     for class_name, fields in spec.items():
         model = getattr(contracts_module, class_name, None)
         assert model is not None, f"`03` §3 declares {class_name}; contracts.py has no such model"

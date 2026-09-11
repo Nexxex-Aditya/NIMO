@@ -1,0 +1,19 @@
+# P13 reasoning composition — specs/reason.md.
+#
+# `04` §9: zero magic numbers in code.
+
+# Upper bound on the REASONING cell. The organizers' sample reasoning runs
+# 430-550 characters; this leaves room for a row with many coded values.
+# Whole sentences are dropped from the end to fit, never cut mid-clause.
+max_chars: 1200
+
+# How many variant terms the identity sentence quotes when citing variant
+# overlap — enough to show what matched, not the whole token list.
+max_variant_terms_cited: 4
+
+# Below this classifier runner-up gap the module sentence says "a close call
+# against <runner-up>", so a reader knows the module is the least certain
+# thing in the row. P5's measured deciles put the bottom decile at 31.7%
+# accuracy (`specs/classify.md`); this is a readability threshold, not a
+# calibrated one.
+low_module_margin: 0.05
