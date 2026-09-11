@@ -16,6 +16,8 @@ notebook's explicit header redundant — kept anyway, per the note in
 `config/models.yaml`, until a live call proves the simpler form works.
 """
 
+from typing import Any
+
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import ChatCompletions, SystemMessage, UserMessage
 from azure.core.credentials import AzureKeyCredential
@@ -45,12 +47,21 @@ def azure_complete_fn(config: LlmConfig, api_key: str) -> CompleteFn:
     )
 
     def complete(call: LlmCall) -> LlmResponse:
+        # `temperature` is sent only when configured (the pinned model rejects
+        # 0 — measured); the output cap goes under whichever field the
+        # gateway accepts (`config/models.yaml`).
+        extras: dict[str, Any] = {}
+        if call.temperature is not None:
+            extras["temperature"] = call.temperature
+        if config.max_tokens_param == "max_tokens":
+            extras["max_tokens"] = call.max_tokens
+        else:
+            extras["model_extras"] = {"max_completion_tokens": call.max_tokens}
         response = client.complete(
             messages=[SystemMessage(call.system), UserMessage(call.user)],
             model=call.model,
-            temperature=call.temperature,
-            max_tokens=call.max_tokens,
             response_format="json_object",
+            **extras,
         )
         if not isinstance(response, ChatCompletions):
             raise LlmError("streaming response received; the client never asks for one")

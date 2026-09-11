@@ -41,6 +41,7 @@ CONFIG = LlmConfig(
     api_version="2025-03-01-preview",
     temperature=0.0,
     max_output_tokens=256,
+    max_tokens_param="max_tokens",
     request_timeout_s=5.0,
     max_tokens_per_run=10_000,
     max_calls_per_run=3,
@@ -80,11 +81,37 @@ class Verdict(BaseModel):
 # --- config (`05` §3, `04` §5) ------------------------------------------------
 
 
-def test_shipped_llm_config_is_pinned_and_deterministic() -> None:
+def test_shipped_llm_config_is_pinned_and_omits_temperature() -> None:
+    """Measured on the first live call: the pinned model rejects temperature
+    0 ("only the default (1) value is supported"), so the shipped config
+    does not send it and determinism rests on the response cache."""
     config = load_llm_config()
     assert config.model == "hack-fest-gpt-5.6-luna"
-    assert config.temperature == 0.0
+    assert config.temperature is None
+    assert config.max_tokens_param in ("max_tokens", "max_completion_tokens")
     assert config.max_calls_per_run > 0 and config.max_tokens_per_run > 0
+
+
+def test_a_temperature_other_than_zero_or_null_is_refused(tmp_path: Path) -> None:
+    # `load_llm_config` is cached by path, so each variant gets its own file.
+    data = yaml.safe_load((REPO_ROOT / "config" / "models.yaml").read_text(encoding="utf-8"))
+    data["llm_temperature"] = 0
+    zero = tmp_path / "zero.yaml"
+    zero.write_text(yaml.safe_dump(data), encoding="utf-8")
+    assert load_llm_config(zero).temperature == 0.0  # zero is sent, as `04` §5 asks
+
+    data["llm_temperature"] = 0.7
+    sampled = tmp_path / "sampled.yaml"
+    sampled.write_text(yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(LlmConfigError, match="llm_temperature"):
+        load_llm_config(sampled)
+
+    data["llm_temperature"] = None
+    data["llm_max_tokens_param"] = "tokens"
+    bad_param = tmp_path / "bad_param.yaml"
+    bad_param.write_text(yaml.safe_dump(data), encoding="utf-8")
+    with pytest.raises(LlmConfigError, match="llm_max_tokens_param"):
+        load_llm_config(bad_param)
 
 
 @pytest.mark.parametrize("model", ["latest", "", "  ", "default"])
@@ -193,6 +220,9 @@ def test_a_cache_hit_issues_no_call_and_is_byte_identical(tmp_path: Path) -> Non
 def test_cache_key_changes_with_model_prompt_and_params() -> None:
     base = a_call()
     assert cache_key(base) == cache_key(a_call())
+    assert cache_key(base) != cache_key(
+        LlmCall(base.model, base.system, base.user, None, 256, base.prompt_hash)
+    )
     assert cache_key(base) != cache_key(a_call(user="other"))
     assert cache_key(base) != cache_key(a_call(system="other"))
     assert cache_key(base) != cache_key(

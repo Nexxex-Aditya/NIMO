@@ -38,8 +38,20 @@ llm_api_version: "2025-03-01-preview"
 # applied to this configured, trusted endpoint, or the pipeline blocks its own
 # model. Scope the check at the fetch client, not globally.
 
-llm_temperature: 0        # `04` §5 — determinism is non-negotiable
+# MEASURED 2026-09-12, first live call from the NIQ network: the gateway
+# returned HTTP 400 — "'temperature' does not support 0.0 with this model.
+# Only the default (1) value is supported." So `04` §5's "temperature=0" is
+# not available on `hack-fest-gpt-5.6-luna`; `null` means the parameter is
+# NOT SENT and the model runs at its fixed default. Determinism then rests on
+# the response cache (sha256 of model + prompt + params: a re-run never
+# re-asks) and the pinned model id — stated in the decision log, not hidden.
+# A number here must be 0 and is sent; use it only for a model that accepts it.
+llm_temperature: null
 llm_max_output_tokens: 1024
+# Which request field carries the output cap. GPT-5-family models behind
+# some gateways reject `max_tokens` and require `max_completion_tokens`;
+# flip this if the next 400 says so.
+llm_max_tokens_param: max_tokens      # max_tokens | max_completion_tokens
 llm_request_timeout_s: 60
 
 # Hard per-run budget — `05` §3. On breach the runner ABORTS with a clear

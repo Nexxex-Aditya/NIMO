@@ -47,6 +47,7 @@ LLM_CONFIG = LlmConfig(
     api_version="2025-03-01-preview",
     temperature=0.0,
     max_output_tokens=256,
+    max_tokens_param="max_tokens",
     request_timeout_s=5.0,
     max_tokens_per_run=100_000,
     max_calls_per_run=100,

@@ -5,9 +5,11 @@
 budget, JSON validation with one retry — is exercised in tests against frozen
 responses, with the Azure adapter (`llm/azure.py`) never constructed.
 
-`04` §5: every call is `temperature=0` and cached by
-`sha256(model + prompt + params)`; a re-run against a warm cache issues no
-call and returns byte-identical text.
+`04` §5 asks for `temperature=0` and a cache keyed by
+`sha256(model + prompt + params)`. The pinned CIS model rejects temperature 0
+(measured 2026-09-12: HTTP 400, "only the default (1) value is supported"),
+so the parameter is omitted for it and determinism rests on the cache: a
+re-run against a warm cache issues no call and returns byte-identical text.
 
 `05` §3: a hard per-run budget. On breach the client raises **before** the
 call is made — abort, never throttle-and-continue, because an overrun usually
@@ -52,7 +54,7 @@ class LlmCall:
     model: str
     system: str
     user: str
-    temperature: float
+    temperature: float | None  # None == not sent (the pinned model rejects 0; measured)
     max_tokens: int
     prompt_hash: str  # `05` §5 — the prompt file's version, recorded with the answer
 
