@@ -199,8 +199,14 @@ Rules:
 
 Non-negotiable, because `03` §5 depends on it:
 
-- Every LLM call: `temperature=0`, fixed seed where supported, response cached
-  by `sha256(model + prompt + params)`.
+- Every LLM call: `temperature=0` **where the model accepts it**, fixed seed
+  where supported, response cached by `sha256(model + prompt + params)`. The
+  pinned CIS model rejects `temperature=0` (measured 2026-09-12: HTTP 400,
+  "only the default (1) value is supported"), so for it the parameter is
+  omitted (`config/models.yaml`: `llm_temperature: null`) and byte-identical
+  re-runs rest on the cache alone — a warm re-run issues no call. Cold-cache
+  first calls may differ on genuinely ambiguous rows; `data/cache/llm/` is
+  therefore carried between machines like the registry (`06` §6).
 - No `random` without a seeded generator passed in explicitly. No
   `random.seed()` at module level.
 - No wall-clock or `datetime.now()` in logic — only in logging and metadata.

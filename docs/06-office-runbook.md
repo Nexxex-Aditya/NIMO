@@ -59,8 +59,11 @@ its endpoint. If it says `FAILED — ServiceRequestTimeoutError`, you are not
 on the network. If it says `FAILED — HttpResponseError ... 401/403`, the
 key or the auth pattern is wrong — `config/models.yaml` documents the
 double-pass the onboarding notebook used; try removing the explicit header
-in `azure.py` (the SDK already sends `Authorization: Bearer`). Any other
-error: send me the line.
+in `azure.py` (the SDK already sends `Authorization: Bearer`). If it says
+`(400) ... 'temperature' does not support 0.0` you are on a checkout older
+than 2026-09-12 — `git pull`. If it says `(400) ... max_tokens` /
+`max_completion_tokens`, set `llm_max_tokens_param: max_completion_tokens`
+in `config/models.yaml` and rerun. Any other error: send me the line.
 
 ## 3. Twenty rows with the model, watched (5 minutes)
 
@@ -158,6 +161,8 @@ Commit `data/registry/` and `data/calibration/` if they changed; leave
 |---|---|---|
 | `--ping` times out | not on the network | VPN / office network |
 | `--ping` 401/403 | auth shape | see step 2 |
+| `--ping` 400 mentioning `temperature` | old checkout | `git pull` (fixed 2026-09-12) |
+| `--ping` 400 mentioning `max_tokens` | gateway wants the newer field name | `llm_max_tokens_param: max_completion_tokens` in `config/models.yaml` |
 | rows fail at `retrieve` | search cache missing and no SearxNG | copy `data/cache/search/`, or `docker compose up -d searxng` |
 | rows fail at `fetch` en masse | no internet for retailers | check proxy; the page cache avoids this entirely |
 | `characteristic_rejected` on most rows | prompt/vocabulary mismatch | send the log |

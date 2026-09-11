@@ -2732,6 +2732,44 @@ silently not covered `--characteristics`. `fastapi` and `uvicorn` added
 **Status:** standing.
 
 
+## 2026-09-12 — First live model call from the office: the pinned model rejects `temperature=0`; the parameter is now omitted and determinism rests on the cache
+**Decision:** `config/models.yaml` sets `llm_temperature: null`, meaning the
+parameter is **not sent**; `LlmConfig.temperature` and `LlmCall.temperature`
+become `float | None`, and the Azure adapter adds `temperature` to the request
+only when a value is configured. A configured number must still be `0` — the
+loader refuses anything else. A second switch, `llm_max_tokens_param`
+(`max_tokens` | `max_completion_tokens`), chooses which request field carries
+the output cap, because GPT-5-family models behind some gateways reject the
+older name; it is set to `max_tokens` until a live 400 says otherwise.
+**Why:** measured, not assumed. `uv run python -m nimo.llm --ping` on the NIQ
+network resolved the endpoint (`10.249.224.116`), found the key, and the
+gateway answered **HTTP 400: `Unsupported value: 'temperature' does not
+support 0.0 with this model. Only the default (1) value is supported`**. So
+`04` §5's "every LLM call: `temperature=0`" is not available on
+`hack-fest-gpt-5.6-luna` — the model samples at its fixed default and offers
+no knob. What still makes a re-run byte-identical is the other half of `04`
+§5, which was always the load-bearing half: every response is cached by
+`sha256(model + system + user + temperature + max_tokens)` and a warm re-run
+issues no call at all. `None` is part of that key, so a cached answer taken
+without the parameter is never served for a call that sends it. What is
+lost is *first-call* reproducibility across cold caches: two cold runs may
+code a characteristic differently on a row where the evidence is genuinely
+ambiguous. That is stated in `04` §5 now rather than papered over, and it is
+one more reason `data/cache/llm/` travels with the registry (runbook §6).
+Rejected: sending `temperature=1` explicitly (identical behaviour, but it
+would read as a deliberate choice of sampling); a per-provider special case
+in the adapter (the config already owns every model parameter, `04` §9).
+Found alongside: the test for the refusal branch was reading a cached
+`load_llm_config` result because it rewrote the same temp path — each
+variant now gets its own file.
+**Affects:** `config/models.yaml`, `src/nimo/llm/config.py`, `client.py`,
+`azure.py`, `tests/llm/test_llm.py` (+1 test, two fixtures updated),
+`tests/match/test_adjudicate.py` and `tests/characteristics/test_characteristics.py`
+fixtures, `04-build-standards.md` §5, `docs/06-office-runbook.md` §2.
+**Status:** standing — the next office `--ping` verifies the omitted
+parameter; if it 400s on `max_tokens`, flip `llm_max_tokens_param`.
+
+
 ---
 
 # Open questions — resolve with organizers
