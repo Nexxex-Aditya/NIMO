@@ -329,6 +329,39 @@ supervised model calls it `DENTAL ACCESSORIES - TOOTHPICKS - MANUAL -
 DISPOSABLE` at confidence 0.391, which is defensible for an interdental
 *stick*. `01` §6 called both rows candidates, not confirmed labels.
 
+## 6a. Page evidence as a module signal — measured 2026-09-12, rejected
+
+`03` §4 stage 5 asked for the delta from layering page evidence on the text
+baseline. Measured over the full 412-row `dev` harvest (every row has a
+selected page), leave-one-out with the shipped classifier, the held-out
+row's `desc_clean` augmented with its selected page's text — the numbers
+are in `03` §4 stage 5. **No variant beats text-only**, on either metric:
+concatenating the title costs 0.4 overall / 1.5 macro; adding the JSON-LD
+name and breadcrumbs costs more; the title alone is 19 points worse; gating
+the title on low text confidence never exceeds the baseline (its best
+setting is the one that almost never routes); and a second centroid model
+fitted on titles and summed in hurts in proportion to its weight. Restricting
+to the 329 rows whose page is ~97% likely correct (calibrated ≥ 0.60) gives
+the same sign: 84.8 → 83.0 overall, 52.1 → 48.8 macro.
+
+Why, from the pages themselves: a retailer title is the retailer's *category
+vocabulary* plus boilerplate — `| Boots`, `Buy … online`, `Superdrug`,
+`… - 75ml - Pack of 2` — and its character 4-grams pull toward whichever
+module dominates that retailer, exactly the mechanism that made BRAND
+harmful (§3c). The errors the baseline makes are on the *form* axis
+(electric vs manual, paste vs stain remover); a title states the form no
+more reliably than the retailer description already does, and body text —
+which does state it — would dilute a bag-of-4-grams even further.
+
+**Deliberately not built:** a module layer that reads page text. What
+remains open from §6 (the 32 unseen modules, `qa:259`) is now a job for
+the stage that reads evidence *semantically* — the characteristics call
+already sees the page and the guideline text — not for this classifier.
+Two forms were rejected, and both are recorded so they are not rebuilt:
+(a) concatenation (any amount), (b) a title-trained second model at any
+weight. Script: `measure_page_module.py` in the session scratchpad; the
+numbers are reproducible from `data/out/artifacts/dev/` and the workbook.
+
 ## 7. Evaluation protocol
 
 Two protocols, for two different jobs. Both are fully deterministic — no RNG

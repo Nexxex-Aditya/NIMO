@@ -2822,6 +2822,36 @@ cap + hint), `tests/llm/test_llm.py` (+4), fixtures in `tests/match/` and
 20-row run sizes the cap and the budget from it.
 
 
+## 2026-09-12 — Page evidence as a module signal: measured on the full `dev` harvest and rejected
+**Decision:** `MODULE` ships from the text-only classifier (P5). No
+page-evidence layer is built on top of it; `03` §1 no longer says one is
+"still to come", and `03` §4 stage 5 records the measurement it asked for.
+**Why:** the dev harvest finished (412/412 rows, all with a selected page),
+which made the delta `03` §4 stage 5 pre-registered measurable in the
+pipeline's own terms — leave-one-out, the shipped `ModuleClassifier`, the
+held-out row's `desc_clean` plus its selected page's text. Every variant
+loses: +title 79.9/48.2 against 80.3/49.7; +title+JSON-LD name+breadcrumbs
+79.1/46.5; title alone 61.4/33.1; gating on low text confidence at best
+equals the baseline; a title-trained second model summed in loses 4–11
+points depending on weight. The fair objection — `dev`'s selected pages are
+weak because its barcodes are corrupt — was tested by restricting to the 329
+rows whose page the calibration curve puts at ~97% correct: 84.8 → 83.0
+overall, 52.1 → 48.8 macro, same sign. The mechanism is the one that made
+BRAND harmful in P5: a title carries the retailer's category vocabulary and
+boilerplate, whose 4-grams pull toward the retailer's dominant module, and
+the baseline's residual errors are on the form axis, which a title states no
+more reliably than the description. Rejected rather than tuned: two families
+(concatenation at any amount; a title model at any weight) both lose
+monotonically, so there is no setting to find. The 141-row interim
+measurement from 2026-09-11 said the same and was held back as too small;
+n=412 confirms it. Consequence, as `03` anticipated: the URL pipeline's
+value is characteristics, and the unseen-module problem (`specs/classify.md`
+§6) belongs to the stage that reads evidence semantically.
+**Affects:** `03-architecture.md` §1, §4 stage 5 (table + subset check).
+`specs/classify.md` new §6a. No code.
+**Status:** standing — measured and rejected; do not rebuild either form.
+
+
 ---
 
 # Open questions — resolve with organizers

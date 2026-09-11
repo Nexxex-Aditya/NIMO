@@ -34,8 +34,9 @@ figure it out" design. Reasons:
 Where the LLM *is* used: adjudicating the top-k ambiguous candidates and
 characteristic extraction from page evidence. Each is a typed function with a
 schema-validated output — never a free-form step that can decide to do
-something else. Module classification is a text model (P5) with the page-
-evidence layer still to come, and **reasoning is composed from the
+something else. Module classification is a text model (P5) — a page-
+evidence layer on top of it was measured on the full `dev` harvest and
+rejected (§4 stage 5) — and **reasoning is composed from the
 structured record, not generated** (P13, `specs/reason.md` §0): stage 7's
 anti-hallucination rule is then a property of the composer rather than a
 hope about a prompt.
@@ -754,6 +755,29 @@ involved. Two reasons:
 Then layer page evidence on top and measure the delta. If the delta is small,
 the URL pipeline's real job is characteristics, not module — which changes where
 effort goes.
+
+**The delta was measured on 2026-09-12 over the full 412-row `dev` harvest,
+and it is negative.** Leave-one-out, the shipped classifier, the held-out
+row's `desc_clean` augmented with its *selected page's* text:
+
+| variant | overall | macro |
+|---|---|---|
+| **text only (shipped)** | **80.3%** | **49.7%** |
+| + page title | 79.9% | 48.2% |
+| + title + JSON-LD name | 79.1% | 46.5% |
+| + title + name + breadcrumbs | 79.1% | 46.5% |
+| page title alone | 61.4% | 33.1% |
+| gated: title only when text confidence < τ (best τ) | 80.3% | — |
+| second model on titles, summed at w = 0.25 / 0.5 / 1.0 | 76.0 / 71.6 / 68.9% | — |
+
+The obvious objection — `dev`'s selected pages are often wrong (its barcodes
+are corrupt, so only 1 of 412 selections is GTIN-confirmed) — was checked:
+on the **329 rows whose selected page is ~97% likely right** (calibrated
+probability ≥ 0.60, `specs/calibrate.md`), text-only scores 84.8% / 52.1%
+and +title 83.0% / 48.8%. Page text costs accuracy even when the page is the
+product. So the pre-registered conclusion above applies: **the URL
+pipeline's job is characteristics, not module**, and `MODULE` ships from
+the text model. `specs/classify.md` §6a has the mechanism.
 
 **Built and measured — P5, `specs/classify.md`.** Character-4-gram TF-IDF
 nearest centroid over P3's `desc_clean`: **80.3% overall (331/412), 49.7%
