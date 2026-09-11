@@ -43,8 +43,15 @@ def load_prompt(name: str, directory: Path = PROMPTS_DIR) -> PromptTemplate:
     path = directory / f"{name}.md"
     if not path.exists():
         raise PromptError(f"{path} not found — `04` §7 keeps every prompt in config/prompts/")
-    raw = path.read_bytes()
-    text = raw.decode("utf-8")
+    # Line endings are normalised BEFORE hashing and before use: git's
+    # autocrlf rewrites these files per machine, and a prompt hash (or an LLM
+    # cache key, which includes the rendered prompt) that differs between
+    # Windows and Linux checkouts of the same file is version skew invented
+    # by the tooling (`05` §5).
+    text = path.read_bytes().decode("utf-8").replace("
+", "
+")
+    raw = text.encode("utf-8")
     if _SECTION_BREAK in text:
         system, user = text.split(_SECTION_BREAK, 1)
     else:
