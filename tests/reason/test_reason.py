@@ -62,6 +62,7 @@ def values(
         source=source,
         prompt_hash="h" if source == "llm" else None,
         model="m" if source == "llm" else None,
+        image_sha256=None,
     )
 
 

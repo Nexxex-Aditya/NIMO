@@ -21,6 +21,8 @@ _UNPINNED = frozenset({"", "latest", "default", "auto"})
 
 ReasoningEffort = Literal["minimal", "low", "medium", "high"]
 _REASONING_EFFORTS: tuple[ReasoningEffort, ...] = ("minimal", "low", "medium", "high")
+ImageDetail = Literal["auto", "low", "high"]
+_IMAGE_DETAILS: tuple[ImageDetail, ...] = ("auto", "low", "high")
 
 
 class LlmConfigError(Exception):
@@ -39,6 +41,7 @@ class LlmConfig:
     max_output_tokens: int
     max_tokens_param: Literal["max_tokens", "max_completion_tokens"]
     reasoning_effort: ReasoningEffort | None  # None == not sent
+    image_detail: ImageDetail  # `03` §4 stage 6 step 5 — the detail level for a pack shot
     request_timeout_s: float
     max_retries: int  # `04` §6 — transport errors and 5xx only
     backoff_base_s: float
@@ -58,6 +61,16 @@ def _max_tokens_param(
     raise LlmConfigError(
         f"{path}: `llm_max_tokens_param` must be `max_tokens` or `max_completion_tokens`; "
         f"got {value!r}."
+    )
+
+
+def _image_detail(data: dict[str, object], path: Path) -> ImageDetail:
+    value = data.get("llm_image_detail")
+    for detail in _IMAGE_DETAILS:
+        if value == detail:
+            return detail
+    raise LlmConfigError(
+        f"{path}: `llm_image_detail` must be one of {list(_IMAGE_DETAILS)}; got {value!r}."
     )
 
 
@@ -122,6 +135,7 @@ def load_llm_config(path: Path = CONFIG_PATH) -> LlmConfig:
         max_output_tokens=_positive_int(data, "llm_max_output_tokens", path),
         max_tokens_param=_max_tokens_param(data, path),
         reasoning_effort=_reasoning_effort(data, path),
+        image_detail=_image_detail(data, path),
         request_timeout_s=_number(data, "llm_request_timeout_s", path),
         max_retries=_non_negative_int(data, "llm_max_retries", path),
         backoff_base_s=_number(data, "llm_backoff_base_s", path),

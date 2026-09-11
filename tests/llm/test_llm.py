@@ -21,6 +21,7 @@ from nimo.llm import (
     LlmConfigError,
     LlmCounter,
     LlmError,
+    LlmImage,
     LlmResponse,
     LlmValidationError,
     PromptError,
@@ -43,6 +44,7 @@ CONFIG = LlmConfig(
     max_output_tokens=256,
     max_tokens_param="max_tokens",
     reasoning_effort=None,
+    image_detail="low",
     max_retries=3,
     backoff_base_s=0.01,
     backoff_max_s=0.05,
@@ -95,6 +97,7 @@ def test_shipped_llm_config_is_pinned_and_omits_temperature() -> None:
     assert config.max_tokens_param in ("max_tokens", "max_completion_tokens")
     assert config.reasoning_effort is None  # not sent until measured against the gateway
     assert config.max_retries == 3  # `04` §6
+    assert config.image_detail == "low"
     # Measured 2026-09-12: 64 tokens were consumed entirely by hidden
     # reasoning. The cap must leave room for reasoning AND the JSON.
     assert config.max_output_tokens >= 2048
@@ -270,6 +273,84 @@ def test_retries_are_bounded_and_the_last_error_propagates() -> None:
     with pytest.raises(ServiceRequestTimeoutError, match="timeout 4"):
         retry_transient(attempt, CONFIG, lambda seconds: None)
     assert calls == CONFIG.max_retries + 1
+
+
+# --- images on a call (`03` §4 stage 6 step 5, Q7)
+
+
+def _image(seed: str = "a") -> LlmImage:
+    import base64
+    import hashlib
+
+    data = seed.encode() * 10
+    return LlmImage("image/png", hashlib.sha256(data).hexdigest(), base64.b64encode(data).decode())
+
+
+def test_an_image_changes_the_cache_key_by_its_hash_only() -> None:
+    base = a_call()
+    with_a = LlmCall(
+        base.model, base.system, base.user, None, 256, base.prompt_hash, (_image("a"),)
+    )
+    with_b = LlmCall(
+        base.model, base.system, base.user, None, 256, base.prompt_hash, (_image("b"),)
+    )
+    same_a = LlmCall(
+        base.model, base.system, base.user, None, 256, base.prompt_hash, (_image("a"),)
+    )
+    plain = LlmCall(base.model, base.system, base.user, None, 256, base.prompt_hash)
+    assert cache_key(with_a) != cache_key(plain)
+    assert cache_key(with_a) != cache_key(with_b)
+    assert cache_key(with_a) == cache_key(same_a)
+
+
+def test_the_cache_entry_records_the_image_hash_never_its_bytes(tmp_path: Path) -> None:
+    calls: list[LlmCall] = []
+
+    def complete(call: LlmCall) -> LlmResponse:
+        calls.append(call)
+        return LlmResponse('{"ok": true}', 41, 64, from_cache=False)
+
+    client = LlmClient(config=CONFIG, complete=complete, cache_dir=tmp_path)
+    image = _image("packshot")
+    call = LlmCall("m", "s", "u", None, 256, "h", (image,))
+    client.call(call)
+    entry = next(tmp_path.rglob("*.json")).read_text(encoding="utf-8")
+    assert image.sha256 in entry and image.base64 not in entry
+    assert client.call(call).from_cache and len(calls) == 1
+
+
+def test_messages_carry_the_image_as_a_data_url_after_the_text() -> None:
+    from nimo.llm.azure import build_messages
+
+    plain = build_messages(LlmCall("m", "sys", "hello", None, 256, "h"), "low")
+    assert [m.as_dict() for m in plain] == [
+        {"role": "system", "content": "sys"},
+        {"role": "user", "content": "hello"},
+    ]
+    image = _image("packshot")
+    rich = build_messages(LlmCall("m", "sys", "hello", None, 256, "h", (image,)), "low")
+    user = rich[1].as_dict()
+    assert user["role"] == "user"
+    assert user["content"][0] == {"type": "text", "text": "hello"}
+    assert user["content"][1] == {
+        "type": "image_url",
+        "image_url": {"url": f"data:image/png;base64,{image.base64}", "detail": "low"},
+    }
+
+
+def test_the_probe_png_is_a_valid_red_square() -> None:
+    import struct
+    import zlib
+
+    from nimo.llm.__main__ import probe_png
+
+    png = probe_png(4)
+    assert png.startswith(b"\x89PNG\r\n\x1a\n")
+    width, height, depth, colour_type = struct.unpack(">IIBB", png[16:26])
+    assert (width, height, depth, colour_type) == (4, 4, 8, 2)
+    idat_len = struct.unpack(">I", png[33:37])[0]
+    raw = zlib.decompress(png[41 : 41 + idat_len])
+    assert raw == (b"\x00" + b"\xff\x00\x00" * 4) * 4
 
 
 def test_reasoning_tokens_round_trip_through_the_cache(tmp_path: Path) -> None:

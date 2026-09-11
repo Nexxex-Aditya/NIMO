@@ -255,6 +255,7 @@ CHARACTERISTIC_VALUES = CharacteristicValues(
     source="llm",
     prompt_hash="9f2c1d3e4b5a69788796a5b4c3d2e1f0",
     model="hack-fest-gpt-5.6-luna",
+    image_sha256=None,
 )
 
 REASONING = Reasoning(

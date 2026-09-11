@@ -12,20 +12,39 @@ drives. Batch-level setup failures (a missing workbook, a bad config) raise
 here and are deliberately NOT caught (`04` §4).
 """
 
+import base64
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+
+import structlog
 
 from nimo.calibrate import CURVE_PATH, IsotonicCurve, load_calibration_config, read_curve
 from nimo.characteristics import (
     CharacteristicExtractor,
+    ImageFetchFn,
     guideline_index,
     load_characteristics_config,
 )
 from nimo.classify import load_classify_config
 from nimo.classify.model import ModuleClassifier
 from nimo.contracts import CharacteristicRule, RawRow, RunSummary
-from nimo.fetch import Fetcher, default_page_cache, load_fetch_config
-from nimo.llm import LlmBudgetExceeded, LlmClient, LlmCounter, load_llm_config, load_prompt
+from nimo.fetch import (
+    Fetcher,
+    ImageCache,
+    default_image_cache,
+    default_page_cache,
+    fetch_image,
+    load_fetch_config,
+    resolve_image_url,
+)
+from nimo.llm import (
+    LlmBudgetExceeded,
+    LlmClient,
+    LlmCounter,
+    LlmImage,
+    load_llm_config,
+    load_prompt,
+)
 from nimo.loader import (
     load_characteristic_guidelines,
     load_characteristic_rules,
@@ -40,6 +59,8 @@ from nimo.retrieval import SearxngClient, default_cache, load_retrieval_config
 from nimo.run.live import RegistryWriter, live_stages
 from nimo.run.runner import CacheCounter, RunPaths, Stages, offline_stages, run
 from nimo.settings import settings
+
+log = structlog.get_logger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKBOOK = REPO_ROOT / "data" / "raw" / "product_truth_agent_dataset.xlsx"
@@ -176,6 +197,14 @@ class Pipeline:
                 fcfg.cache_enabled,
             ),
         )
+        image_cache = default_image_cache(
+            CACHE_DIR / "images",
+            fcfg.cache_ttl_days,
+            fcfg.failure_cache_ttl_hours,
+            fcfg.cache_enabled,
+        )
+        if extractor is not None:
+            extractor = replace(extractor, fetch_image=pack_shot_fetcher(fetcher, image_cache))
         writer = RegistryWriter(
             entities_path=REGISTRY_DIR / "entities.jsonl",
             audit_path=REGISTRY_DIR / "audit.jsonl",
@@ -261,3 +290,30 @@ class Pipeline:
             self.searx.close()
         if self.fetcher is not None:
             self.fetcher.close()
+
+
+def pack_shot_fetcher(fetcher: Fetcher, cache: ImageCache) -> ImageFetchFn:
+    """The `ImageFetchFn` over `nimo.fetch.images`: the first candidate that
+    fetches as an allowed image type, base64-encoded for the call. A page's
+    `<img src>` may be relative; it is resolved against the page URL."""
+
+    def first_usable(page_url: str, image_urls: list[str]) -> LlmImage | None:
+        for raw in image_urls:
+            outcome = fetch_image(fetcher, resolve_image_url(page_url, raw), cache)
+            if outcome.status == "ok" and outcome.media_type is not None:
+                digest = outcome.sha256
+                assert digest is not None  # ok => bytes present
+                return LlmImage(
+                    media_type=outcome.media_type,
+                    sha256=digest,
+                    base64=base64.b64encode(outcome.data).decode("ascii"),
+                )
+            log.info(
+                "pack_shot_unavailable",
+                url=outcome.url,
+                status=outcome.status,
+                detail=outcome.detail,
+            )
+        return None
+
+    return first_usable

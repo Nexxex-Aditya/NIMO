@@ -21,6 +21,7 @@ from nimo.characteristics.evaluate import (
 )
 from nimo.characteristics.extract import (
     CharacteristicExtractor,
+    ImageFetchFn,
     characteristics_block,
     evidence_block,
     guideline_index,
@@ -41,6 +42,7 @@ __all__ = [
     "ApplicabilityReport",
     "CharacteristicAccuracy",
     "CharacteristicExtractor",
+    "ImageFetchFn",
     "CharacteristicsConfig",
     "CharacteristicsConfigError",
     "PracticeDefault",

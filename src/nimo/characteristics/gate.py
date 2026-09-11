@@ -45,6 +45,7 @@ def gate_only(
         source="gate_only",
         prompt_hash=None,
         model=None,
+        image_sha256=None,
     )
 
 
@@ -74,4 +75,5 @@ def from_entity(
         source="registry",
         prompt_hash=None,
         model=None,
+        image_sha256=None,
     )

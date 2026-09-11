@@ -10,13 +10,17 @@ back with token counts. No cache, so it always makes the call.
 `.env` and never printed.
 """
 
+import base64
+import hashlib
 import socket
+import struct
 import sys
+import zlib
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel
 
-from nimo.llm.client import LlmCall, LlmClient, LlmError
+from nimo.llm.client import LlmCall, LlmClient, LlmError, LlmImage
 from nimo.llm.config import load_llm_config
 from nimo.settings import settings
 
@@ -26,10 +30,40 @@ class _Pong(BaseModel):
     model_seen: str
 
 
+class _Seen(BaseModel):
+    colour: str
+    shape: str
+
+
+def probe_png(size: int = 32) -> bytes:
+    """A solid red square, written by hand (no imaging dependency): the
+    question `--ping-image` asks has exactly one right answer, so a wrong
+    one says the model did not see the image."""
+    row = b"\x00" + b"\xff\x00\x00" * size  # filter byte, then RGB per pixel
+    raw = row * size
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return (
+            struct.pack(">I", len(body))
+            + kind
+            + body
+            + struct.pack(">I", zlib.crc32(kind + body) & 0xFFFFFFFF)
+        )
+
+    header = struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0)  # 8-bit RGB
+    return (
+        b"\x89PNG\r\n\x1a\n"
+        + chunk(b"IHDR", header)
+        + chunk(b"IDAT", zlib.compress(raw))
+        + chunk(b"IEND", b"")
+    )
+
+
 def main(argv: list[str]) -> int:
-    if "--ping" not in argv:
-        print("usage: uv run python -m nimo.llm --ping")
+    if "--ping" not in argv and "--ping-image" not in argv:
+        print("usage: uv run python -m nimo.llm --ping | --ping-image")
         return 2
+    with_image = "--ping-image" in argv
     config = load_llm_config()
     host = urlsplit(config.endpoint).hostname or config.endpoint
     print(f"model    : {config.model}")
@@ -54,6 +88,46 @@ def main(argv: list[str]) -> int:
         complete=azure_complete_fn(config, settings.cis_llm_api_key),
         cache_dir=None,
     )
+    if with_image:
+        png = probe_png()
+        image = LlmImage(
+            media_type="image/png",
+            sha256=hashlib.sha256(png).hexdigest(),
+            base64=base64.b64encode(png).decode("ascii"),
+        )
+        call = LlmCall(
+            model=config.model,
+            system="You answer with a single JSON object and nothing else.",
+            user=(
+                "An image is attached. Reply with exactly "
+                '{"colour": "<the dominant colour of the image, one word>", '
+                '"shape": "<the shape it shows, one word>"}.'
+            ),
+            temperature=config.temperature,
+            max_tokens=config.max_output_tokens,
+            prompt_hash="ping-image",
+            images=(image,),
+        )
+        try:
+            seen = client.complete_json(call, _Seen)
+        except (LlmError, AzureError) as error:
+            print(f"image    : FAILED — {type(error).__name__}: {error}")
+            print(
+                "Q7 stays open: a 400 naming image_url/content means the gateway does not "
+                "accept image input; set `use_image_evidence: false` in "
+                "config/characteristics.yaml."
+            )
+            return 1
+        verdict = "as expected" if seen.colour.lower().strip() == "red" else "NOT red — look"
+        print(f"image    : OK  colour={seen.colour!r} shape={seen.shape!r}  ({verdict})")
+        print(
+            f"tokens   : prompt {client.counter.prompt_tokens}, "
+            f"completion {client.counter.completion_tokens} — the prompt figure is the "
+            f"per-image cost at `llm_image_detail: {config.image_detail}`"
+        )
+        print("Q7 resolved: the model sees images. `use_image_evidence: true` is safe.")
+        return 0
+
     call = LlmCall(
         model=config.model,
         system="You answer with a single JSON object and nothing else.",

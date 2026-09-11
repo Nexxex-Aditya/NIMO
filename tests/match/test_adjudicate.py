@@ -49,6 +49,7 @@ LLM_CONFIG = LlmConfig(
     max_output_tokens=256,
     max_tokens_param="max_tokens",
     reasoning_effort=None,
+    image_detail="low",
     max_retries=3,
     backoff_base_s=0.01,
     backoff_max_s=0.05,

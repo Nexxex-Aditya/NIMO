@@ -354,6 +354,7 @@ def _valued(row_uid: str, module: str | None) -> CharacteristicValues:
         source="llm",
         prompt_hash="p",
         model="m",
+        image_sha256=None,
     )
 
 

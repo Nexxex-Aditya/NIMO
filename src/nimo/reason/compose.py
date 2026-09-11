@@ -253,6 +253,14 @@ def characteristics_sentences(values: CharacteristicValues) -> list[Sentence]:
                 priority=70,
             )
         )
+    if values.image_sha256 is not None:
+        sentences.append(
+            Sentence(
+                "A packaging image from the selected page was also examined.",
+                ("characteristics.image",),
+                priority=55,
+            )
+        )
     if values.source == "gate_only" and values.applicable:
         sentences.append(
             Sentence(

@@ -33,6 +33,8 @@ class CharacteristicsConfig:
     excerpt_window_chars: int
     excerpt_anchor_terms: tuple[str, ...]
     practice_defaults: dict[str, PracticeDefault]  # characteristic -> default; str keys
+    visual_characteristics: frozenset[str]  # attach the pack shot when one applies
+    image_candidates: int
 
 
 @lru_cache(maxsize=1)
@@ -55,11 +57,18 @@ def load_characteristics_config(path: Path = CONFIG_PATH) -> CharacteristicsConf
     retries = data.get("max_value_retries")
     if isinstance(retries, bool) or not isinstance(retries, int) or retries < 0:
         raise CharacteristicsConfigError(f"{path}: `max_value_retries` must be >= 0.")
-    if images:
+    visual = data.get("visual_characteristics")
+    if (
+        not isinstance(visual, list)
+        or not visual
+        or not all(isinstance(v, str) and v.startswith("GLOBAL_") for v in visual)
+    ):
         raise CharacteristicsConfigError(
-            f"{path}: `use_image_evidence: true` is not implemented — Q7 (multimodal support) is "
-            f"unresolved (`specs/characteristics.md` §2). Leave it false until it is."
+            f"{path}: `visual_characteristics` must be a non-empty list of characteristic columns."
         )
+    candidates = data.get("image_candidates")
+    if isinstance(candidates, bool) or not isinstance(candidates, int) or candidates < 1:
+        raise CharacteristicsConfigError(f"{path}: `image_candidates` must be >= 1.")
     prefix = data.get("excerpt_prefix_chars")
     if isinstance(prefix, bool) or not isinstance(prefix, int) or prefix < 0:
         raise CharacteristicsConfigError(f"{path}: `excerpt_prefix_chars` must be >= 0.")
@@ -84,6 +93,8 @@ def load_characteristics_config(path: Path = CONFIG_PATH) -> CharacteristicsConf
         excerpt_window_chars=window,
         excerpt_anchor_terms=tuple(a.lower() for a in anchors),
         practice_defaults=_practice_defaults(data, path),
+        visual_characteristics=frozenset(visual),
+        image_candidates=candidates,
     )
 
 

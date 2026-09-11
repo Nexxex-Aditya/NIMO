@@ -401,6 +401,7 @@ def _trace_record(artifacts: RowArtifacts, run_id: str, config_fingerprint: str)
             1 for value in artifacts.characteristics.values.values() if value is not None
         ),
         "characteristics_rejected": len(artifacts.characteristics.rejected),
+        "characteristics_image": artifacts.characteristics.image_sha256 is not None,
         "reasoning_chars": len(artifacts.reasoning.text),
         "reasoning_claims": list(artifacts.reasoning.claims),
     }

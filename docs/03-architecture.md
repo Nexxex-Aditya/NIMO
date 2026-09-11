@@ -312,6 +312,7 @@ class CharacteristicValues:        # P12 — stage [6] output, `specs/characteri
     source: Literal["llm","registry","gate_only"]  # gate_only == off-network mode: gate applied, no call, every value None
     prompt_hash: str | None        # `05` §5; None unless source == "llm"
     model: str | None
+    image_sha256: str | None       # the pack shot the model saw (`nimo.fetch.images`), for provenance; None when none was sent
 
 class Reasoning:                   # P13 — stage [7] output, `specs/reason.md` §1
     row_uid: str

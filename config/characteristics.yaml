@@ -58,12 +58,25 @@ excerpt_anchor_terms:
   - metal
   - bamboo
 
-# `03` §4 stage 6 step 5 routes the pack shot to a multimodal call for the
-# four visual characteristics (packaging material, bristle strength, head
-# size, dispense method). [PROVISIONAL — Q7]: whether the pinned model
-# accepts image input is unresolved, so this stays off and those four are
-# answered from text. Flipping it is the change when Q7 resolves.
-use_image_evidence: false
+# `03` §4 stage 6 step 5: the selected page's pack shot goes to the model
+# with the one characteristics call, when a visual characteristic applies.
+# Q7: the organizer confirmed 2026-09-11 that the model accepts image input
+# ("AFAIK", URL or base64); `python -m nimo.llm --ping-image` is the check.
+# The image is fetched through `nimo.fetch.images` (guard, pacing, size cap,
+# cache) — at the office it MUST already be in data/cache/images/.
+use_image_evidence: true
+# The four `03` names; the image is attached only when one of them applies
+# to the module, and the prompt lets the model use it for the rest too
+# (a pack front states "with fluoride" and the flavour as often as not).
+visual_characteristics:
+  - GLOBAL_PACKAGING_MATERIAL
+  - GLOBAL_BRISTLE_STRENGTH_CLAIM
+  - GLOBAL_DESCRIPTIVE_SIZE_OF_TOOTHBRUSH_HEAD_CLAIM
+  - GLOBAL_METHOD_OF_APPLICATION_DISPENSE
+# How many of the page's image URLs to try, in the extractor's order
+# (og:image first). One usually suffices; the second covers an og:image
+# that is a site logo or a dead asset.
+image_candidates: 2
 
 # Evidence-silent defaults MEASURED on `dev` where the coders' practice
 # contradicts the guideline's written default (or where the guideline names

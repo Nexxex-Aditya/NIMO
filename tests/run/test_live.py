@@ -49,6 +49,7 @@ def values(source: Literal["llm", "registry", "gate_only"], **coded: str) -> Cha
         source=source,
         prompt_hash=None,
         model=None,
+        image_sha256=None,
     )
 
 

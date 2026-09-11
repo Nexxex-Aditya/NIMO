@@ -64,6 +64,14 @@ llm_max_tokens_param: max_tokens      # max_tokens | max_completion_tokens
 # dominating the budget, `low` is the first thing to try — NOT VERIFIED
 # against this gateway; a 400 naming the field means it is unsupported.
 llm_reasoning_effort: null            # null | minimal | low | medium | high
+# Pack shots (`03` §4 stage 6 step 5) go to the model as base64 data URLs.
+# Q7: the organizer confirmed 2026-09-11 that the model accepts image input
+# (URL or base64 — "AFAIK"); `python -m nimo.llm --ping-image` verifies it.
+# `low` is a fixed small token cost per image and reads pack text fine;
+# `high` is for fine print, at several times the tokens. Part of the cache
+# key via the request, not via this value: changing it does not invalidate
+# cached answers — clear `data/cache/llm/` if it must.
+llm_image_detail: low                 # auto | low | high
 llm_request_timeout_s: 60
 # `04` §6: max 3 retries, exponential backoff with full jitter, on transport
 # errors (connection refused/aborted, timeouts) and 5xx ONLY — never a 4xx,

@@ -57,6 +57,21 @@ class LlmTruncated(LlmError):
 
 
 @dataclass(frozen=True)
+class LlmImage:
+    """One image attached to a call, already base64 — a pack shot fetched
+    through `nimo.fetch.images`. `sha256` is what the cache key and the
+    artifacts carry; the data itself is never written to the cache entry."""
+
+    media_type: str  # image/jpeg, image/png, ... (`config/fetch.yaml` image_types)
+    sha256: str
+    base64: str
+
+    @property
+    def data_url(self) -> str:
+        return f"data:{self.media_type};base64,{self.base64}"
+
+
+@dataclass(frozen=True)
 class LlmCall:
     """Everything that determines an answer — and therefore the cache key."""
 
@@ -66,6 +81,7 @@ class LlmCall:
     temperature: float | None  # None == not sent (the pinned model rejects 0; measured)
     max_tokens: int
     prompt_hash: str  # `05` §5 — the prompt file's version, recorded with the answer
+    images: tuple[LlmImage, ...] = ()  # `03` §4 stage 6 step 5; `05` §3 image inputs
 
 
 @dataclass(frozen=True)
@@ -106,6 +122,7 @@ def cache_key(call: LlmCall) -> str:
             "user": call.user,
             "temperature": call.temperature,
             "max_tokens": call.max_tokens,
+            "images": [image.sha256 for image in call.images],
         },
         sort_keys=True,
         ensure_ascii=False,
@@ -168,6 +185,7 @@ class LlmClient:
                 temperature=call.temperature,
                 max_tokens=call.max_tokens,
                 prompt_hash=call.prompt_hash,
+                images=call.images,
             )
             second = self.call(retry)
             try:
@@ -234,6 +252,10 @@ class LlmClient:
                     "prompt_hash": call.prompt_hash,
                     "temperature": call.temperature,
                     "max_tokens": call.max_tokens,
+                    "images": [
+                        {"media_type": image.media_type, "sha256": image.sha256}
+                        for image in call.images
+                    ],
                     "system": call.system,
                     "user": call.user,
                     "text": response.text,

@@ -142,6 +142,7 @@ class CharacteristicValues(BaseModel):  # P12 — stage [6] output, `specs/chara
     source: Literal["llm", "registry", "gate_only"]
     prompt_hash: str | None  # `05` §5; None unless source == "llm"
     model: str | None
+    image_sha256: str | None  # sha256 of the pack shot the model saw; None when none was sent
 
 
 class Reasoning(BaseModel):  # P13 — stage [7] output, `specs/reason.md` §1

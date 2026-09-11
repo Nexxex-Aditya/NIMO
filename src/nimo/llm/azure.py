@@ -25,8 +25,14 @@ import structlog
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import (
     ChatCompletions,
+    ChatRequestMessage,
     CompletionsFinishReason,
+    ContentItem,
+    ImageContentItem,
+    ImageDetailLevel,
+    ImageUrl,
     SystemMessage,
+    TextContentItem,
     UserMessage,
 )
 from azure.core.credentials import AzureKeyCredential
@@ -90,7 +96,7 @@ def azure_complete_fn(
 
         def once() -> LlmResponse:
             response = client.complete(
-                messages=[SystemMessage(call.system), UserMessage(call.user)],
+                messages=build_messages(call, config.image_detail),
                 model=call.model,
                 response_format="json_object",
                 **extras,
@@ -102,6 +108,28 @@ def azure_complete_fn(
         return retry_transient(once, config, sleep)
 
     return complete
+
+
+def build_messages(call: LlmCall, image_detail: str) -> list[ChatRequestMessage]:
+    """The SDK message list for one call. Pure, so the shape is tested.
+
+    With no images the user turn is a plain string, exactly as before. With
+    images it is a content list — the text first, then one `image_url` item
+    per image as a base64 data URL (Q7: both URL and base64 are accepted;
+    base64 means the model never fetches anything, and the office network
+    could not serve it a URL anyway). `05` §3: an image is evidence under
+    the same untrusted framing as page text; the prompt says so.
+    """
+    if not call.images:
+        return [SystemMessage(call.system), UserMessage(call.user)]
+    content: list[ContentItem] = [TextContentItem(text=call.user)]
+    for image in call.images:
+        content.append(
+            ImageContentItem(
+                image_url=ImageUrl(url=image.data_url, detail=ImageDetailLevel(image_detail))
+            )
+        )
+    return [SystemMessage(call.system), UserMessage(content=content)]
 
 
 def is_transient(error: AzureError) -> bool:
