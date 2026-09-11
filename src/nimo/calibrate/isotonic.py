@@ -73,8 +73,22 @@ def fit_isotonic(scores: list[float], labels: list[bool], *, min_pairs: int) -> 
         )
 
     order = sorted(range(len(scores)), key=lambda i: (scores[i], i))
-    # Each block: [start_score, sum_of_labels, count]
-    blocks: list[list[float]] = [[scores[i], 1.0 if labels[i] else 0.0, 1.0] for i in order]
+    # Each block: [start_score, sum_of_labels, count]. **Tied scores are
+    # pooled into one weighted block before PAV** — standard isotonic
+    # regression, and the property the reliability report depends on: two
+    # pairs at 0.45 labelled [0, 1] must fit to 0.5 at 0.45, not to two
+    # blocks (0.45 -> 0.0, 0.45 -> 1.0) that PAV leaves alone because they
+    # do not decrease and that `predict` then resolves by whichever is last.
+    # Found on the first full harvest: a bin predicted 0.61 and observed
+    # 0.42, which a within-block fit cannot do unless ties were split.
+    blocks: list[list[float]] = []
+    for i in order:
+        label = 1.0 if labels[i] else 0.0
+        if blocks and blocks[-1][0] == scores[i]:
+            blocks[-1][1] += label
+            blocks[-1][2] += 1.0
+        else:
+            blocks.append([scores[i], label, 1.0])
 
     merged = True
     while merged:

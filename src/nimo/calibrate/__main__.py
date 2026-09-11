@@ -59,7 +59,7 @@ def main(argv: list[str]) -> int:
     write_curve(CURVE_PATH, curve, source=f"pairs.jsonl sha256:{digest} ({len(pairs)} pairs)")
     print(f"wrote {CURVE_PATH}")
     print()
-    print(format_report(build_report(pairs, curve)))
+    print(format_report(build_report(pairs, curve, min_pairs=config.min_labelled_pairs)))
     print()
     print(
         f"tau_abstain is {config.tau_abstain} "

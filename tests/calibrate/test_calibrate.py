@@ -46,6 +46,31 @@ def test_a_cascade_of_violations_pools_backwards() -> None:
     assert curve.values[0] == pytest.approx(1 / 3)
 
 
+def test_tied_scores_are_pooled_into_one_block() -> None:
+    """Found on the first full harvest: a reliability bin predicted 0.61 and
+    observed 0.42, impossible for a within-block fit — unless pairs at the
+    same score sit in different blocks. They must not."""
+    curve = fit_isotonic([0.45, 0.45, 0.9], [False, True, True], min_pairs=3)
+    assert curve.thresholds == (0.45, 0.9)
+    assert curve.values == (0.5, 1.0)
+    assert curve.predict(0.45) == 0.5
+
+
+def test_every_block_is_calibrated_on_the_pairs_it_was_fitted_on() -> None:
+    """The property the reliability report relies on: for every fitted
+    block, the observed rate of the pairs that map to it equals its value.
+    Ties, cascades and clean runs all mixed in."""
+    scores = [0.1, 0.2, 0.2, 0.2, 0.4, 0.4, 0.5, 0.7, 0.7, 0.9, 0.9, 0.95]
+    labels = [False, True, False, False, True, False, False, True, True, True, False, True]
+    curve = fit_isotonic(scores, labels, min_pairs=12)
+    assert list(curve.values) == sorted(curve.values)
+    by_value: dict[float, list[bool]] = {}
+    for score, label in zip(scores, labels, strict=True):
+        by_value.setdefault(curve.predict(score), []).append(label)
+    for value, members in by_value.items():
+        assert value == pytest.approx(sum(members) / len(members)), (value, members)
+
+
 def test_prediction_is_a_monotone_step_function() -> None:
     curve = fit_isotonic(
         [0.1, 0.2, 0.3, 0.4, 0.5, 0.6],
@@ -129,7 +154,8 @@ def test_report_states_n_bias_and_reliability() -> None:
     text = format_report(report)
 
     assert report.n_pairs == 10 and report.n_positive == 6 and report.n_rows == 10
-    assert "SELECTION BIAS" in text
+    assert "SELECTION BIAS" in text and "HELD-OUT ECE" in text
+    assert report.expected_calibration_error == pytest.approx(0.0)  # in-sample: by construction
     assert "labelled pairs: 10" in text
     assert 0.0 <= report.expected_calibration_error <= 1.0
     # abstention at tau=0 selects everything; at tau=0.9 it selects fewer
@@ -185,3 +211,17 @@ def test_shipped_calibration_config_and_committed_curve() -> None:
     curve = read_curve(CURVE_PATH)
     assert curve is not None and curve.n_pairs >= config.min_labelled_pairs
     assert curve.predict(0.0) <= curve.predict(0.5) <= curve.predict(1.0)
+
+
+def test_held_out_ece_groups_folds_by_row_and_is_not_zero_by_construction() -> None:
+    from nimo.calibrate import held_out_ece
+
+    pairs = [
+        LabelledPair(f"qa:{i % 12}", f"https://{i}.test", score, correct)
+        for i, (score, correct) in enumerate(
+            [(0.1 + 0.02 * k, k % 3 != 0) for k in range(36)]  # ties across rows, mixed labels
+        )
+    ]
+    held = held_out_ece(pairs, folds=4, min_pairs=4)
+    assert held is not None and 0.0 < held <= 1.0
+    assert held_out_ece(pairs[:3], folds=4, min_pairs=2) is None  # fewer rows than folds

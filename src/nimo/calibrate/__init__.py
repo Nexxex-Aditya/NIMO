@@ -8,6 +8,7 @@ from nimo.calibrate.report import (
     ReliabilityBin,
     build_report,
     format_report,
+    held_out_ece,
 )
 from nimo.calibrate.store import (
     CURVE_PATH,
@@ -36,6 +37,7 @@ __all__ = [
     "build_report",
     "fit_isotonic",
     "format_report",
+    "held_out_ece",
     "harvest_pairs",
     "read_pairs",
     "write_pairs",
