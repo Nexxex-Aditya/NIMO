@@ -29,6 +29,7 @@ retrying it 412 times would print the same error 412 times.
 """
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 from nimo.calibrate import CURVE_PATH, load_calibration_config, read_curve
@@ -78,12 +79,18 @@ def main(argv: list[str]) -> int:
     if adjudicate and not live:
         print("--adjudicate needs --live: Tier 3 adjudicates fetched candidates.")
         return 2
-    if adjudicate and not settings.cis_llm_api_key:
+    if (adjudicate or characteristics) and not settings.cis_llm_api_key:
         # `04` §9: validated present at startup, not at the first call.
-        print(
-            "--adjudicate needs CIS_LLM_API_KEY in `.env` (see .env.example, config/models.yaml)."
-        )
+        print("the model needs CIS_LLM_API_KEY in `.env` (see .env.example, config/models.yaml).")
         return 2
+    if characteristics and not live:
+        # Allowed: the extractor codes from the product record alone (`01` §6's
+        # fallback). A lower bound for the P12 gate when no page evidence is
+        # available — said out loud so it is not mistaken for the gate number.
+        print(
+            "NOTE: --characteristics without --live extracts from the RECORD ALONE (no page "
+            "evidence). This is the description-only baseline, not the P12 gate."
+        )
 
     rows = load_rows(WORKBOOK, sheet, RETAILERS)
     if limit is not None:
@@ -114,7 +121,41 @@ def main(argv: list[str]) -> int:
 
     if not live:
         stages = offline_stages(index, thresholds, classifier, rules, load_reason_config())
-        summary = run(rows, stages, paths, run_id, cache_counter=counter, rules=rules)
+        if characteristics:
+            from nimo.llm.azure import azure_complete_fn
+
+            llm_config = load_llm_config()
+            assert settings.cis_llm_api_key is not None  # checked above
+            record_only = CharacteristicExtractor(
+                llm=LlmClient(
+                    config=llm_config,
+                    complete=azure_complete_fn(llm_config, settings.cis_llm_api_key),
+                    cache_dir=CACHE_DIR / "llm",
+                    counter=llm_counter,
+                    retry_prompt=load_prompt("json_retry"),
+                ),
+                prompt=load_prompt("characteristics"),
+                retry_prompt=load_prompt("characteristics_retry"),
+                rules=rules,
+                guidelines=guideline_index(load_characteristic_guidelines(WORKBOOK)),
+                config=load_characteristics_config(),
+            )
+            stages = replace(
+                stages,
+                characteristics=lambda query, module, evidence: record_only.extract(
+                    query, module, None
+                ),
+            )
+        summary = run(
+            rows,
+            stages,
+            paths,
+            run_id,
+            cache_counter=counter,
+            llm_counter=llm_counter,
+            abort_on=(LlmBudgetExceeded,),
+            rules=rules,
+        )
     else:
         rcfg = load_retrieval_config()
         fcfg = load_fetch_config()

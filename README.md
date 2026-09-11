@@ -66,7 +66,8 @@ uv run python -m nimo.calibrate                      # refit the calibration cur
 uv run python -m nimo.assemble --sheet qa            # data/out/submission_qa.xlsx (+ .csv, report)
 ```
 
-On the NIQ network (the CIS model endpoint is internal-only), add the model:
+On the NIQ network (the CIS model endpoint is internal-only), follow
+`docs/06-office-runbook.md` — in short, verify the model with `uv run python -m nimo.llm --ping`, then add it:
 
 ```bash
 uv run python -m nimo.run --sheet qa --live --adjudicate --characteristics
