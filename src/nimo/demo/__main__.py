@@ -56,10 +56,13 @@ def main(argv: list[str]) -> int:
         for card in cards
         if card.selection.features is not None and card.selection.features.barcode_exact
     )
+    registry_hits = sum(1 for card in cards if card.registry.hit)
     summary = [
         f"sheet {sheet}, first {rows} rows: {len(cards)} complete, {len(failed)} failed",
         f"resolution tiers: {dict(sorted(tiers.items()))}",
-        f"pages confirmed by GTIN: {gtin_hits}/{len(cards)}",
+        f"identity confirmed by GTIN: {gtin_hits} this run + {registry_hits} carried from the "
+        f"registry (a hit is a GTIN match to a prior run) = "
+        f"{gtin_hits + registry_hits}/{len(cards)}",
         f"registry entities: {entities_before} before -> {entities_after} after",
         "mode: " + ("LIVE (SearxNG + fetch)" if live else "OFFLINE (no network; retrieval empty)"),
         "Tier 0 fires on a RE-RUN against a warm registry, not on a first pass "
