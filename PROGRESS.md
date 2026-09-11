@@ -9,15 +9,19 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: ALL PHASES BUILT (P0–P15). Remaining work is measurement and runs,
-not code: (1) let the qa harvest finish, re-run under the 8-stage sequence
-(`--live`, from cache), refit calibration (`python -m nimo.calibrate`),
-assemble (`python -m nimo.assemble --sheet qa`), run the demo live
-(`python -m nimo.demo --sheet qa --rows 10 --live --html`) and the warm
-RE-RUN with a fresh `--out-dir` for the Tier-0 number; (2) on the office
-laptop: `specs/adjudicate.md` §8 and `specs/characteristics.md` §6 — the
-two model-dependent gates — after a first live call verifies
-`src/nimo/llm/azure.py`.
+Phase: ALL PHASES BUILT (P0–P15) AND THE SUBMISSION PATH HAS RUN END TO END.
+`data/out/submission_qa.xlsx` (gitignored) exists: 412 rows, URL + REASONING
++ MODULE on every row, the 13 characteristic columns as the null pattern only
+(gate-only; values need the model). `data/out/demo_qa.html` is the demo page.
+The registry (`data/registry/`, committed) holds 111 GTIN-confirmed entities
+with modules, rebuilt 2026-09-11 under the current ranking.
+
+What remains is on the office laptop (NIQ network): a first live call to
+`src/nimo/llm/azure.py`, then `specs/characteristics.md` §6
+(`--live --characteristics` on dev → `python -m nimo.characteristics
+--evaluate`) and `specs/adjudicate.md` §8. Then re-run qa with
+`--live --characteristics [--adjudicate]` and re-assemble — everything else
+is cached, so that run costs only the model calls.
 
 **THE NUMBER THAT MATTERS FOR PLANNING — MEASURED 2026-09-11:** the full
 412-row `qa` run completed on free engines in **107 minutes, 0 failures, 0
@@ -58,7 +62,7 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (738 passed)
+  uv run pytest                          -> EXIT 0  (744 passed)
 
 ## Do NOT re-do
 
