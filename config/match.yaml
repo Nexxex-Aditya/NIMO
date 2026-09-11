@@ -75,6 +75,31 @@ negative_flags:
   - value pack
   - trial
 
+# --- Listing pages are not product pages ----------------------------------
+#
+# Measured on the first live run of the full pipeline (2026-09-11): 2 of 5
+# qa rows selected an Amazon SEARCH RESULTS page (`/s?k=oral+b+toothbrush`)
+# as "the product". A listing mentions the brand, the size and every variant
+# term at once — which is exactly why the weighted features like it — and
+# identifies no product at all. Demoted through the same machinery as
+# `refill`/`bundle`: it is a page for the wrong THING, not a wrong variant.
+#
+# URL shapes, matched case-insensitively against the candidate URL. Kept to
+# unambiguous search/listing markers; a product URL that happens to contain
+# `search` in a slug would be a false demotion, so bare words are avoided.
+listing_url_patterns:
+  - "/s?k="          # amazon search
+  - "/s/"            # amazon search (path form)
+  - "/search?"       # generic
+  - "/search/"       # generic path form
+  - "?q="            # generic query
+  - "?query="
+  - "/catalogsearch/"  # magento
+  - "/results?"
+  - "/sr?"           # ebay-style
+  - "/sch/"          # ebay search
+  - "/b/bn_"         # ebay category browse — qa:2 fell through to one once amazon's listing was demoted
+
 # --- Page-side parsing -----------------------------------------------------
 #
 # How much page text to run P3's parser over. The title carries the product

@@ -186,6 +186,39 @@ def test_adversarial_page_with_no_structured_data_still_ranks() -> None:
     assert scored.features.barcode_exact is None  # cannot evaluate, not "no match"
 
 
+def test_adversarial_search_listing_is_demoted_below_a_product_page() -> None:
+    """**Measured on the first live run**: 2 of 5 qa rows selected an Amazon
+    search-results page. A listing mentions the brand, the size and every
+    variant term at once — exactly why the weighted features like it — and
+    identifies no product at all."""
+    subject = query(
+        brand="ORAL B",
+        desc="oral b pro expert toothbrush",
+        variants=["pro", "expert"],
+        size_ml=None,
+        hints=["toothbrush"],
+    )
+    product = page(
+        url="https://boots.com/oral-b-pro-expert-toothbrush-10012345",
+        title="Oral-B Pro Expert Toothbrush",
+    )
+    listing = page(
+        url="https://amazon.co.uk/oral-b-toothbrush/s?k=oral+b+pro+expert+toothbrush",
+        title="Amazon.co.uk: oral b pro expert toothbrush",
+    )
+    ranked = rank_candidates(subject, [listing, product], CONFIG)
+    assert ranked[0].evidence.url.startswith("https://boots.com")
+    assert "negative:listing_page" in ranked[1].reason
+
+
+def test_a_product_url_containing_search_in_a_slug_is_not_a_listing() -> None:
+    """The patterns are unambiguous markers, not bare words — a product slug
+    that happens to contain `search` must not be demoted."""
+    subject = query()
+    fine = page(url="https://boots.com/research-labs-whitening-toothpaste-100ml")
+    assert "listing_page" not in score_candidate(subject, fine, CONFIG).features.negative_flags
+
+
 # =============================================================================
 # The corrupt-barcode trap — `01` §3, and 394 of 412 dev rows
 # =============================================================================

@@ -195,18 +195,26 @@ def market_signal(query: ProductQuery, evidence: CandidateEvidence) -> float:
     return 0.5 if host.endswith(".com") else 0.0
 
 
-def negative_flags(query: ProductQuery, text: str, config: MatchConfig) -> list[str]:
-    """Flags present on the page but absent from the query.
+def negative_flags(query: ProductQuery, text: str, config: MatchConfig, url: str = "") -> list[str]:
+    """Flags present on the page but absent from the query, plus `listing_page`
+    when the URL is a search/listing page.
 
     Asymmetric by construction: a query that *is* a refill is not penalised
     for matching a refill page. `03` §4 stage 4 lists these as hard demotions
     because they mark a different SKU of the same product line.
+
+    **`listing_page` is a URL-shape flag, not a text flag.** Measured on the
+    first live run: 2 of 5 rows selected an Amazon search-results page. A
+    listing mentions the brand, the size and every variant term at once —
+    exactly why the weighted features like it — and identifies no product.
     """
     query_text = f"{query.desc_clean} {' '.join(query.tokens.variant_terms)}".lower()
     lowered = text.lower()
-    return sorted(
-        flag for flag in config.negative_flags if flag in lowered and flag not in query_text
-    )
+    flags = [flag for flag in config.negative_flags if flag in lowered and flag not in query_text]
+    lowered_url = url.lower()
+    if any(pattern in lowered_url for pattern in config.listing_url_patterns):
+        flags.append("listing_page")
+    return sorted(flags)
 
 
 def compute_features(
@@ -232,7 +240,7 @@ def compute_features(
         format_consistent=format_consistent(query, text),
         retailer_domain_match=retailer_domain_match(query, evidence, retailer_domain),
         market_signal=market_signal(query, evidence),
-        negative_flags=negative_flags(query, text, config),
+        negative_flags=negative_flags(query, text, config, evidence.url),
         raw_score=0.0,
         calibrated_prob=0.0,
     )

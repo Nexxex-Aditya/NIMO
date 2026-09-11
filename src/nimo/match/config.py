@@ -30,6 +30,7 @@ class MatchConfig:
     negative_flag_penalty: float
     score_floor: float
     negative_flags: tuple[str, ...]
+    listing_url_patterns: tuple[str, ...]
     page_text_chars: int
 
 
@@ -54,6 +55,9 @@ def load_match_config(path: Path = CONFIG_PATH) -> MatchConfig:
     flags = data.get("negative_flags")
     if not isinstance(flags, list) or not flags:
         raise MatchConfigError(f"{path}: `negative_flags` must be a non-empty list.")
+    listing = data.get("listing_url_patterns")
+    if not isinstance(listing, list) or not listing:
+        raise MatchConfigError(f"{path}: `listing_url_patterns` must be a non-empty list.")
     chars = data.get("page_text_chars")
     if isinstance(chars, bool) or not isinstance(chars, int) or chars < 1:
         raise MatchConfigError(f"{path}: `page_text_chars` must be a positive integer.")
@@ -72,6 +76,7 @@ def load_match_config(path: Path = CONFIG_PATH) -> MatchConfig:
         negative_flag_penalty=_weight(data, "penalties", "negative_flag", path),
         score_floor=float(floor),
         negative_flags=tuple(str(flag).lower() for flag in flags),
+        listing_url_patterns=tuple(str(pattern).lower() for pattern in listing),
         page_text_chars=chars,
     )
 

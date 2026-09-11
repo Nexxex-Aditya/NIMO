@@ -1997,6 +1997,31 @@ correction), `tests/retrieval/test_resilience.py` (+2).
 entries up.
 
 
+## 2026-09-11 — Listing pages demoted: a search-results URL is not a product page
+**Decision:** `listing_page` added as a URL-shape negative flag in the matcher,
+demoted through the same machinery as `refill`/`bundle`. Patterns live in
+`config/match.yaml` (`listing_url_patterns`).
+**Why:** the first live run of the full pipeline selected an Amazon
+**search-results page** (`/s?k=oral+b+toothbrush`) as "the product" on 2 of 5
+`qa` rows. A listing mentions the brand, the size and every variant term at
+once — precisely why the weighted features score it well — and identifies no
+product at all. It is a page for the wrong *thing*, not a wrong variant, which
+is the same category `03` §4 stage 4's negative flags already cover.
+
+Re-scored on the cached artifacts (no network): both Amazon listings dropped.
+`qa:3` then resolved to `gezondheidaanhuis.nl/.../Bocasan-Oral-B-20-Tuete` —
+the query was `bcsan 20 x 1.7 gr`, i.e. Bocasan 20 sachets, and that is the
+right product on a Dutch retailer, which `01` §5 permits. `qa:2` fell through
+to an eBay *category* page (`/b/bn_…`), so that shape was added too.
+
+Patterns are unambiguous markers (`/s?k=`, `/search?`, `/catalogsearch/`,
+`/b/bn_`), never bare words: a product slug containing `research` must not be
+demoted, and a test asserts it is not.
+**Affects:** `config/match.yaml`, `src/nimo/match/config.py`,
+`src/nimo/match/features.py`, `tests/match/test_match.py` (+2).
+**Status:** standing
+
+
 ---
 
 # Open questions — resolve with organizers
