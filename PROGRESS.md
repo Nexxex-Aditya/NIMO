@@ -9,7 +9,7 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: ALL PHASES BUILT (P0–P15) AND THE SUBMISSION PATH HAS RUN END TO END.
+Phase: ALL PHASES BUILT (P0–P16, P16 = the interactive UI) AND THE SUBMISSION PATH HAS RUN END TO END.
 `data/out/submission_qa.xlsx` (gitignored) exists: 412 rows, URL + REASONING
 + MODULE on every row, the 13 characteristic columns as the null pattern only
 (gate-only; values need the model). `data/out/demo_qa.html` is the demo page.
@@ -62,12 +62,12 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (744 passed)
+  uv run pytest                          -> EXIT 0  (754 passed)
 
 ## Do NOT re-do
 
 - P0–P15: built (P7's recall gate open; P10's curve fitted interim; P11's delta and P12's accuracy unmeasured off-network — all stated), gates verified by execution where they can be, committed.
-- **P15: the demo renders the artifacts; it never computes.** Don't add a presentation path that could drift from the runner.
+- **P15/P16: the demo and the UI render the artifacts; they never compute.** The pipeline is composed ONCE in `run/compose.py`; the CLI, demo and UI all call it. Don't add a second composition.
 - **P14: passthrough columns are the WORKBOOK's bytes, never `RawRow`'s repaired ones.** A failed row is blank in every output column. Identifier columns are text cells. The xlsx is byte-identical only because of the deterministic repack — openpyxl re-stamps `dcterms:modified` inside `save()`; don't remove `_repack_deterministic`.
 - **P13: REASONING is COMPOSED from the typed record, never generated.** `03` §1 and §4 stage 7 say so now. Don't add a model call that can introduce claims; a style pass, if ever wanted, goes after the composed text and never replaces it. The runner has EIGHT stages.
 - **P12: the applicability gate is OURS, applied before and after the model.** `values` always has all 13 keys; a volunteered non-applicable value is dropped. Closed values validate per `&` component — the validator reproduces `01` §11's exact counts on dev (1,719 / 2 GLASS / 187 joined), pinned. Don't switch to whole-string.

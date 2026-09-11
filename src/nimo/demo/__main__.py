@@ -15,8 +15,8 @@ from pathlib import Path
 
 from nimo.demo.cards import load_card, load_failures, render_failure, render_html, render_text
 from nimo.registry import read_entities
-from nimo.run.__main__ import OUT_DIR, REGISTRY_DIR
 from nimo.run.__main__ import main as run_main
+from nimo.run.compose import OUT_DIR, REGISTRY_DIR
 
 DEFAULT_ROWS = 10  # `04` §1's P15 gate: "Runs end-to-end on 10 sample rows"
 

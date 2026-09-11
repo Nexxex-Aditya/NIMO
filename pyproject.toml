@@ -16,6 +16,8 @@ dependencies = [
     "extruct>=0.18",            # P8 — JSON-LD / microdata / OpenGraph extraction
     "rapidfuzz>=3.6",           # P9 — Layer A text-similarity features
     "azure-ai-inference>=1.0.0b9",
+    "fastapi>=0.141.1",
+    "uvicorn>=0.52.4",
 ]
 # LLM client deliberately NOT declared yet — provider/SDK depends on Q7
 # (02-decision-log.md open questions). Add when that resolves, scoped to P11.

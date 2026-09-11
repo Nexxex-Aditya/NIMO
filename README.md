@@ -73,7 +73,14 @@ On the NIQ network (the CIS model endpoint is internal-only), follow
 uv run python -m nimo.run --sheet qa --live --adjudicate --characteristics
 ```
 
-The demo — ten rows, every stage's record, and an HTML page:
+The interactive interface — run any row, run it again to watch the registry
+warm-start, or type a product of your own:
+
+```bash
+uv run python -m nimo.ui --live          # http://127.0.0.1:8765
+```
+
+The batch demo — ten rows, every stage's record, and an HTML page:
 
 ```bash
 uv run python -m nimo.demo --sheet qa --rows 10 --live --html

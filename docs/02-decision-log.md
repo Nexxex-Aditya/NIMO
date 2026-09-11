@@ -2697,6 +2697,41 @@ rebuilt; `audit.jsonl` appended.
 **Status:** standing — HARD-20% (scoring). The hard rule is unchanged.
 
 
+## 2026-09-12 — P16 interactive interface, and the pipeline composed in one place
+**Decision:** A local web UI (`src/nimo/ui/`, FastAPI + one self-contained
+page) over the pipeline; and the pipeline's composition moved out of
+`run/__main__.py` into `run/compose.py` (`Pipeline.create(...)`), which the
+CLI, the demo and the UI now share.
+**Why:** the CLI plus a static page was enough to submit and thin to judge
+by. The UI adds the two things a person at a demo wants to do — run *any*
+row and see every stage's record, and type a product of their own — without
+a second pipeline: it drives the same runner and renders the same `RowCard`
+as the P15 demo. Sharing the composition was the precondition; two copies
+of "build the classifier, the index, the clients and the stages" would have
+drifted, which is the measurement-logic-differs-from-pipeline-logic failure
+this log records four times.
+
+Three things worth recording from the first live session: an ad-hoc record
+whose barcode the registry knows resolves in 0.03 s — the memory, shown
+directly; a brand word that is also an ordinary word (`BRILLIANT`) pulls
+paint pages into the candidate set and the matcher scores them below the
+retailer page, which the card shows rather than hides; and the ad-hoc row
+goes through the loader's own parsers, so a rounded barcode typed by a
+person is nulled and flagged exactly as a sheet's would be.
+
+Also in this pass: `python -m nimo.llm --ping` (one live model call, the
+first thing to run on the NIQ network), `--characteristics` allowed without
+`--live` as the record-only baseline, and a startup key check that had
+silently not covered `--characteristics`. `fastapi` and `uvicorn` added
+(both typed).
+**Affects:** new `specs/ui.md`, new `src/nimo/ui/` (`service.py`, `app.py`,
+`page.py`, `__main__.py`), new `tests/ui/` (10), new `src/nimo/run/compose.py`,
+`src/nimo/run/__main__.py` (thin), `src/nimo/demo/__main__.py`,
+`src/nimo/llm/__main__.py`, `docs/06-office-runbook.md`, `pyproject.toml`,
+`04-build-standards.md` §1 (P16 row).
+**Status:** standing.
+
+
 ---
 
 # Open questions — resolve with organizers
