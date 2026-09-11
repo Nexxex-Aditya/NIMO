@@ -84,6 +84,17 @@ The `[characteristics]` line per row should say `llm: N applicable, M coded`
 and list values like `GLOBAL_IF_WITH_FLUORIDE = WITH FLUORIDE`. If the
 values read as nonsense against the product, stop and send me the cards.
 
+Or look at them in the browser — the interactive UI runs the same pipeline:
+
+```bash
+uv run python -m nimo.ui --live --characteristics      # then open http://127.0.0.1:8765
+```
+
+Pick any row and press Run; press "Run again (warm)" on a GTIN-confirmed row
+to watch it come back as a registry hit; type a product of your own in the
+form. The UI writes under `data/out/ui/`, so it never touches the office
+artifact tree.
+
 ## 4. The P12 gate — accuracy on `dev` (30–60 minutes, unattended)
 
 This is the number the project is missing. Two forms, run the one you can:
