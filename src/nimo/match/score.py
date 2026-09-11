@@ -182,7 +182,10 @@ def rank_candidates(
 
 def _is_about_not_of(item: ScoredCandidate) -> bool:
     """A directory or listing page is *about* the product, not *of* it."""
-    return any(flag in ("directory", "listing_page") for flag in item.features.negative_flags)
+    return any(
+        flag in ("directory", "listing_page", "non_commerce")
+        for flag in item.features.negative_flags
+    )
 
 
 def select(

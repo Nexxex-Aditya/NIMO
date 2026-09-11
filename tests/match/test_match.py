@@ -592,3 +592,21 @@ def test_among_gtin_confirmed_pages_the_retailer_beats_the_directory() -> None:
     assert [item.evidence.url for item in ranked][:2] == ["https://colgate.com/p", directory.url]
     only_directory, _ = select(subject, [directory, no_gtin], CONFIG)
     assert only_directory.url == directory.url
+
+
+def test_a_reference_or_social_page_is_demoted_not_rejected() -> None:
+    """3 of 412 qa selections were Wikipedia or Instagram. Never a product's
+    page; demoted like a directory, kept when nothing else was fetched."""
+    subject = query()
+    wiki = page(url="https://en.wikipedia.org/wiki/Aquafresh", title="Aquafresh - Wikipedia")
+    retailer = page(url="https://boots.com/p", title="Aquafresh Whitening Pump Toothpaste 100ml")
+    selection, ranked = select(subject, [wiki, retailer], CONFIG)
+    assert selection.url == "https://boots.com/p"
+    flagged = next(item for item in ranked if "wikipedia" in item.evidence.url)
+    assert "non_commerce" in flagged.features.negative_flags and not flagged.rejected
+    alone, _ = select(subject, [wiki], CONFIG)
+    assert alone.url == wiki.url
+    assert (
+        "non_commerce"
+        not in compute_features(subject, page(url="https://breathrx.com/p"), CONFIG).negative_flags
+    )

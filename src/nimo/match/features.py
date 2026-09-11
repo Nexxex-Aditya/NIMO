@@ -215,13 +215,20 @@ def negative_flags(query: ProductQuery, text: str, config: MatchConfig, url: str
     if any(pattern in lowered_url for pattern in config.listing_url_patterns):
         flags.append("listing_page")
     host = urlsplit(lowered_url).netloc
-    if host and any(
-        host == domain or host.endswith("." + domain) for domain in config.directory_domains
-    ):
+    if host and _host_in(host, config.directory_domains):
         # A barcode directory or price aggregator: about the product, not the
         # product's page. Measured at 17% of qa selections (`config/match.yaml`).
         flags.append("directory")
+    if host and _host_in(host, config.non_commerce_domains):
+        # An encyclopedia article or a social post: never a product's page.
+        flags.append("non_commerce")
     return sorted(flags)
+
+
+def _host_in(host: str, domains: tuple[str, ...]) -> bool:
+    """Suffix match on the host, so subdomains count and `notbuycott.com`
+    does not."""
+    return any(host == domain or host.endswith("." + domain) for domain in domains)
 
 
 def compute_features(

@@ -158,3 +158,26 @@ adjudication:
   body_text_chars: 600
   # The rationale is a citation for stage 7, not chain-of-thought (`04` §7).
   max_rationale_chars: 400
+
+# --- Reference and social hosts ------------------------------------------------
+#
+# Never a product's page: an encyclopedia article, a social post, a video.
+# Measured on the full qa run: 3 of 412 selections (`en.wikipedia.org`,
+# `instagram.com` x2). Demoted through the `non_commerce` flag like the
+# directories above — never rejected, since nothing else may have been
+# fetched. Host suffix match; subdomains count.
+non_commerce_domains:
+  - wikipedia.org
+  - wikidata.org
+  - wiktionary.org
+  - facebook.com
+  - instagram.com
+  - youtube.com
+  - reddit.com
+  - pinterest.com
+  - pinterest.co.uk
+  - twitter.com
+  - x.com
+  - tiktok.com
+  - linkedin.com
+  - quora.com

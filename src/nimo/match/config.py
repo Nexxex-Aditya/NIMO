@@ -32,6 +32,7 @@ class MatchConfig:
     negative_flags: tuple[str, ...]
     listing_url_patterns: tuple[str, ...]
     directory_domains: tuple[str, ...]
+    non_commerce_domains: tuple[str, ...]
     page_text_chars: int
     # P11 — `specs/adjudicate.md`; all [PROVISIONAL] until the gate runs
     adjudicate_gap_threshold: float
@@ -74,6 +75,9 @@ def load_match_config(path: Path = CONFIG_PATH) -> MatchConfig:
     directories = data.get("directory_domains")
     if not isinstance(directories, list) or not directories:
         raise MatchConfigError(f"{path}: `directory_domains` must be a non-empty list.")
+    non_commerce = data.get("non_commerce_domains")
+    if not isinstance(non_commerce, list) or not non_commerce:
+        raise MatchConfigError(f"{path}: `non_commerce_domains` must be a non-empty list.")
     chars = data.get("page_text_chars")
     if isinstance(chars, bool) or not isinstance(chars, int) or chars < 1:
         raise MatchConfigError(f"{path}: `page_text_chars` must be a positive integer.")
@@ -103,6 +107,7 @@ def load_match_config(path: Path = CONFIG_PATH) -> MatchConfig:
         negative_flags=tuple(str(flag).lower() for flag in flags),
         listing_url_patterns=tuple(str(pattern).lower() for pattern in listing),
         directory_domains=tuple(str(host).lower().lstrip(".") for host in directories),
+        non_commerce_domains=tuple(str(host).lower().lstrip(".") for host in non_commerce),
         page_text_chars=chars,
         adjudicate_gap_threshold=float(gap),
         adjudicate_top_k=top_k,
