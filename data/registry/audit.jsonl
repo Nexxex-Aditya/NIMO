@@ -331,3 +331,4 @@
 {"confidence": 1.0, "entity_id": "gtin:ed1028cdaab2fc85", "row_uids": ["qa:403"], "run_id": "qa-rebuild", "tier": "tier2_retrieval", "written_at": "2026-09-11T18:23:05.201977+00:00"}
 {"confidence": 1.0, "entity_id": "gtin:452978733a5798ab", "row_uids": ["qa:410"], "run_id": "qa-rebuild", "tier": "tier2_retrieval", "written_at": "2026-09-11T18:23:06.858558+00:00"}
 {"confidence": 1.0, "entity_id": "gtin:c5e41f9f40e013ce", "row_uids": ["qa:411"], "run_id": "qa-rebuild", "tier": "tier2_retrieval", "written_at": "2026-09-11T18:23:09.718463+00:00"}
+{"confidence": 1.0, "entity_id": "gtin:24c51221c4a99157", "row_uids": ["dev:110"], "run_id": "dev-harvest-1", "tier": "tier2_retrieval", "written_at": "2026-09-11T19:16:25.636818+00:00"}

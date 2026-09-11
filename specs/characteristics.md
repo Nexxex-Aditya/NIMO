@@ -71,6 +71,31 @@ When the row has no selected page (abstained, or nothing fetched), the call
 still happens with the record alone — `01` §6's fallback: the description
 often names the flavour, size and format outright.
 
+## 2a. Practice defaults — measured, rendered beside the guideline, never edited into it
+
+The first live run (2026-09-12, 92 `dev` rows) found the model obeying the
+guideline and the truth disagreeing with it, systematically:
+
+| characteristic | guideline's written default | labelled data, evidence silent | model did |
+|---|---|---|---|
+| `GLOBAL_IF_WITH_FLUORIDE` | `WITHOUT FLUORIDE` ("the default value for this module") | `WITH FLUORIDE` — 123 of 148 rows, including rows whose page never mentions fluoride | `WITHOUT` on 21 of 31 rows; 20 of those pages/records never say "fluorid" |
+| `GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT_GROUP` | none | `NOT STATED` — 113 of 278, never blank | `null` on 25 of 57 |
+| `GLOBAL_ORAL_CARE_FUNCTION` | `FRESHENING` | 2–3 `&`-joined components on 176 of 270 | one component on 38 of 54 answers |
+
+On the home harvest's real pages the excerpt mentions fluoride on 55 of 148
+rows; under the written default the model's ceiling is ~68/148, under the
+coders' practice ~135/148. So `config/characteristics.yaml` carries
+`practice_defaults`: per characteristic, the value the labelled data uses
+when the evidence is silent **and the measurement that says so** (a default
+without its evidence is refused at config load — `04` §9). The extractor
+renders it after the guideline, labelled as measured practice; the
+guideline text is the organizers' and is never edited. Prompt rule 4 says
+the practice default wins where the two differ; rule 2 now asks for every
+supported component of a multi-value characteristic, alphabetical,
+`&`-joined. These are dev-derived and that is the point — `03` §6 L2 is
+"characteristic accuracy against `dev`", and the coders who labelled `dev`
+labelled `qa`. Any future characteristic added here needs its own number.
+
 ## 3. Validation — per `&` component, then the retry, then EMPTY
 
 `03` step 3, `01` §11, `05` §1's immunity claim. For each applicable
@@ -157,6 +182,19 @@ because a wrong module loses the value and the null pattern together
 **Off-network, now**: the validator regression (§3) and the applicability
 precision/recall of P5's predicted modules on `dev` — reported in the phase
 entry and the `04` §1 row, with the accuracy column marked NOT measured.
+
+**First measurement, 2026-09-12 (office laptop, 92 of 412 `dev` rows ran —
+the dev search cache was 62% built when it was copied):** model view
+**68.6% (354/516 applicable cells)**; per characteristic from 22.6%
+(`IF_WITH_FLUORIDE`) to 97.8% (`PERCENTAGE_NATURAL_INGREDIENTS`). Two
+qualifiers that matter more than the number: (1) **the office network
+returned an error page for 78 of the 92 selected pages** (2240 of 2384 qa
+fetches — a corporate proxy), so this is effectively the *record-only*
+number, not the page-evidence gate; the page cache must travel with the
+code (`docs/06-office-runbook.md` §0). (2) The three worst characteristics
+fail on the guideline-vs-practice divergence in §2a, fixed since. The
+evaluator now prints the model view beside the submission view so a partial
+run is not misread (it printed 14.7% for the same tree).
 
 ## 7. Tests (`04` §8, `05` §6)
 

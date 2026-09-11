@@ -3,8 +3,16 @@
 The only thing this project cannot do off the NIQ network is call the CIS
 model. Everything else — retrieval, fetching, matching, the registry,
 calibration, reasoning, assembly — has already run on all 412 `qa` rows and
-its results are cached. This runbook is the ordered list of what to do on a
-machine that can reach `llm-api-cis.azure-intlsd-np.nielsencsp.net`.
+all 412 `dev` rows at home, and its results are cached. This runbook is the
+ordered list of what to do on a machine that can reach
+`llm-api-cis.azure-intlsd-np.nielsencsp.net`.
+
+**What the first trip (2026-09-12) taught, and this page now assumes:** the
+office network answers retail websites with an error page — 94% of page
+fetches failed there against 12% at home. So the office laptop must never
+fetch a page; it must find every page in the cache. **`data/cache/pages/`
+is required, not optional.** With all three caches present the office run
+touches no website and no search engine; it only calls the model.
 
 Each step says what it produces and what "good" looks like. Stop at the
 first step that does not look good; the later ones depend on it.
@@ -12,34 +20,35 @@ first step that does not look good; the later ones depend on it.
 ## 0. What to carry over (do this on the home machine first)
 
 1. `git push` — the code, docs, registry, calibration curve and gold data
-   are all in the repo.
+   are all in the repo. On the office laptop: `git pull`.
 2. **`.env`** is gitignored. Copy it by hand (USB/OneDrive, not chat/email):
-   it holds `CIS_LLM_API_KEY` and `SEARXNG_SECRET`.
-3. **`data/cache/`** is gitignored and is what makes the office run cheap:
-   - `data/cache/search/` (~2 MB) — every search query for `qa` (and `dev`,
-     if the dev harvest finished) is cached here. **With it, the office run
-     needs no SearxNG and no Docker.**
-   - `data/cache/pages/` (~900 MB) — every fetched page. Optional; without
-     it the runner re-fetches from the retailers (~1 hour, needs ordinary
-     internet, no Docker).
-   Zip `data/cache/` and copy it alongside.
-4. Do **not** copy `data/out/` — the office run must produce a fresh
-   artifact tree (below), and stale artifacts would make the runner skip
-   rows.
+   it holds `CIS_LLM_API_KEY` and `SEARXNG_SECRET`. Put it at the repo root.
+3. **`data/cache/`** — all three, zipped together (~1 GB):
+   - `data/cache/search/` (~2 MB) — every search query for `qa` AND `dev`.
+     With it the office run needs no SearxNG and no Docker.
+   - `data/cache/pages/` (~900 MB) — every fetched page. **Required**: the
+     office network cannot fetch them (above). Pages expire 7 days after
+     they were fetched (2026-09-11 → 2026-09-18); if the trip is later,
+     say so before leaving and the home machine refreshes them first.
+   - `data/cache/llm/` — the model's answers so far. Small. A re-run of an
+     already-answered prompt is free and byte-identical.
+   Unzip into place so the paths read `data/cache/search`, `data/cache/pages`,
+   `data/cache/llm`.
+4. Do **not** copy `data/out/` — the office run writes a fresh artifact
+   tree (below). If an older office tree exists there from the first trip,
+   leave it; the commands below use new folder names.
 
 ## 1. Set up (10 minutes)
 
 ```bash
-git clone https://github.com/Nexxex-Aditya/NIMO.git && cd NIMO
-# install uv if absent: https://docs.astral.sh/uv/  (pip install uv works too)
+git pull
 uv sync
-# put .env at the repo root; unzip data/cache/ into place
-uv run pytest -q          # expect: all passed (744+). No network is used by tests.
+uv run pytest -q          # expect: all passed (771+). No network is used by tests.
 ```
 
 If `uv sync` fails on a corporate proxy, `uv` honours `HTTPS_PROXY`.
 
-## 2. The first live model call (1 minute) — the step that decides everything
+## 2. The model call (1 minute)
 
 ```bash
 uv run python -m nimo.llm --ping
@@ -52,146 +61,101 @@ resolves : ['10.249.224.116']
 key      : present
 ... [info] llm_call completion_tokens=M model=... prompt_tokens=N reasoning_tokens=R
 call     : OK  ok=True  model_seen='...'
-tokens   : prompt N, completion M (...)
 ```
 
-**Write down `R`** (or `None` if the gateway does not report it). The model
-is a reasoning model: it thinks before it writes, and the thinking is billed
-inside `completion_tokens` and counts against the output cap. `R` on a
-trivial prompt is the floor every pipeline call pays; it sizes
-`llm_max_output_tokens` (4096) and the run budget (step 4).
+Verified working on 2026-09-12 after two fixes (the model rejects
+`temperature=0`; it reasons before it writes, so the cap is 4096). If it
+fails now, the symptom table at the end has every case seen so far.
 
-This is the first time `src/nimo/llm/azure.py` has ever executed against
-its endpoint. If it says `FAILED — ServiceRequestTimeoutError`, you are not
-on the network. If it says `FAILED — HttpResponseError ... 401/403`, the
-key or the auth pattern is wrong — `config/models.yaml` documents the
-double-pass the onboarding notebook used; try removing the explicit header
-in `azure.py` (the SDK already sends `Authorization: Bearer`). If it says
-`(400) ... 'temperature' does not support 0.0` you are on a checkout older
-than 2026-09-12 — `git pull`. If it says `LlmValidationError ... Invalid
-JSON: EOF ... input_value=''` you are on the second-oldest checkout of the
-same day — also `git pull` (the cap was 64 tokens and the model's reasoning
-consumed all of it). If it says `LlmTruncated`, the 4096 cap is still not
-enough: set `llm_reasoning_effort: low` in `config/models.yaml` and rerun; if
-that 400s on the field name, raise `llm_max_output_tokens` to 8192 instead.
-If it says `(400) ... max_tokens` /
-`max_completion_tokens`, set `llm_max_tokens_param: max_completion_tokens`
-in `config/models.yaml` and rerun. Any other error: send me the line.
+## 3. The dev gate — the P12 number (about 1 hour, unattended)
 
-## 3. Twenty rows with the model, watched (5 minutes)
+This is the measurement the project is missing: per-characteristic
+accuracy against `dev`'s 412 labelled rows, **with page evidence**. It
+needs the `dev` search cache (complete since 2026-09-12) and the page cache.
 
 ```bash
-uv run python -m nimo.run --sheet qa --live --characteristics --limit 20 --out-dir data/out/office
+uv run python -m nimo.run --sheet dev --live --characteristics --out-dir data/out/office2
+uv run python -m nimo.characteristics --evaluate data/out/office2/artifacts/dev
 ```
 
-Good: `rows: 20  succeeded: 20  failed: 0`, `model: 20 calls`, and in the
-log a few `llm_call` lines with token counts in the low thousands. **Note
-the `tokens` figure in the summary — it is the input to step 4's budget
-arithmetic.** If rows fail at `characteristics` with `LlmTruncated`, the
-reasoning is longer on real prompts than on the ping: set
-`llm_reasoning_effort: low` (or raise `llm_max_output_tokens`) and rerun —
-the runner resumes, the failed rows are re-asked, the succeeded ones are not.
-Look
-for `characteristic_rejected` warnings: a handful is normal (the validator
-refusing a value outside the vocabulary and retrying once); every row
-rejecting is a prompt problem — send me the log.
+Good, run: `rows: 412  succeeded: 412  failed: 0`, `page-cache hit/miss:
+N/0` or nearly — **a large miss count means the page cache is not in
+place; stop and fix that before spending model calls.** Model calls ~412,
+tokens ~1M.
 
-Then read what it coded:
+Good, evaluate: a per-characteristic table ending in two `micro accuracy`
+lines that AGREE (submission view = model view, because every row ran).
+The first trip measured 68.6% over 92 rows with no page evidence; there is
+no target number, but FLUORIDE, FLAVOUR and ORAL_CARE_FUNCTION should have
+moved a great deal (the practice-default fix). Copy the whole table.
+
+Optional, cheap, and the honest baseline for the report — the same run
+from the record alone, no page evidence (note the flag set: no `--live`):
 
 ```bash
-uv run python -m nimo.demo --sheet qa --rows 10 --live --html --out-dir data/out/office
+uv run python -m nimo.run --sheet dev --characteristics --out-dir data/out/office2-record
+uv run python -m nimo.characteristics --evaluate data/out/office2-record/artifacts/dev
 ```
 
-The `[characteristics]` line per row should say `llm: N applicable, M coded`
-and list values like `GLOBAL_IF_WITH_FLUORIDE = WITH FLUORIDE`. If the
-values read as nonsense against the product, stop and send me the cards.
+The evaluate output must say `412 from the model` — if it says `gate-only
+tree`, the run was started without `--characteristics`.
 
-Or look at them in the browser — the interactive UI runs the same pipeline:
+## 4. The submission run (about 1 hour, unattended)
 
 ```bash
-uv run python -m nimo.ui --live --characteristics      # then open http://127.0.0.1:8765
+uv run python -m nimo.run --sheet qa --live --characteristics --out-dir data/out/office2
+uv run python -m nimo.assemble --sheet qa --out-dir data/out/office2
 ```
 
-Pick any row and press Run; press "Run again (warm)" on a GTIN-confirmed row
-to watch it come back as a registry hit; type a product of your own in the
-form. The UI writes under `data/out/ui/`, so it never touches the office
-artifact tree.
+Good: `rows: 412  succeeded: 412  failed: 0` (a transient gateway error
+now retries three times; if a row still fails, re-run the same command —
+it resumes and re-asks only that row), `registry: 112 entities`, and in
+the assembly report **`GLOBAL_PERCENTAGE_NATURAL_INGREDIENTS` filled on
+412** — it applies to every module, so anything less means rows without
+values (the first trip had 298: the 111 registry-hit rows were empty, fixed
+since). `data/out/office2/submission_qa.xlsx` is the deliverable.
 
-## 4. The P12 gate — accuracy on `dev` (30–60 minutes, unattended)
-
-This is the number the project is missing. Two forms, run the one you can:
-
-**With page evidence** (needs the `dev` search cache — present if the dev
-harvest finished at home; check `ls data/cache/search | wc -l` is well over
-2000 — or Docker for SearxNG):
+Then the adjudication A/B — P11's gate, cheap because everything else is
+cached (only the adjudication calls are new, ~60):
 
 ```bash
-uv run python -m nimo.run --sheet dev --live --characteristics --out-dir data/out/office
-uv run python -m nimo.characteristics --evaluate data/out/office/artifacts/dev
+uv run python -m nimo.run --sheet qa --live --characteristics --adjudicate --out-dir data/out/office2-adj
+uv run python -m nimo.assemble --sheet qa --out-dir data/out/office2-adj
 ```
 
-**Record-only** (no page evidence, no cache needed — a lower bound):
+Both submissions come back; the diff between them is the measured P11 delta.
 
-```bash
-uv run python -m nimo.run --sheet dev --characteristics --out-dir data/out/office-record
-uv run python -m nimo.characteristics --evaluate data/out/office-record/artifacts/dev
-```
+## 5. Bring back
 
-Good: the evaluate output ends with a per-characteristic table and a
-`micro accuracy: H/T = P%` line. There is no target number — this is the
-first measurement. Copy the whole table into the report back.
+Zip and carry (USB/OneDrive):
 
-Budget: `config/models.yaml` caps a run at 5000 calls / 2M tokens. Before
-this run, project it from step 3: `tokens` from the 20-row summary × 20.6
-(= 412/20). The ~1.7M estimate in the earlier version of this page assumed
-no reasoning tokens; a reasoning model may double it. **If the projection
-exceeds 2M, raise `llm_max_tokens_per_run` to ~1.5× the projection** — that
-is a measured change, not a blind one — and note the number in the report.
-If the runner then stops with `LlmBudgetExceeded` anyway, that is the abort
-working (pathological retries) — tell me, do not raise it again; the run is
-resumable, so nothing completed is lost.
+- `data/out/` — every `office2*` folder: submissions, assembly reports,
+  traces, artifacts. This is the deliverable and its evidence.
+- `data/cache/llm/` — the model's answers (small); they make any re-run
+  here free and byte-identical.
+- `data/registry/` — it will have gained characteristics on 111 entities.
+- The terminal output of both `--evaluate` runs and each run summary
+  (screenshots are fine).
 
-## 5. The submission run (30–45 minutes, unattended)
-
-```bash
-uv run python -m nimo.run --sheet qa --live --characteristics --adjudicate --out-dir data/out/office
-uv run python -m nimo.assemble --sheet qa --out-dir data/out/office
-```
-
-Good: `rows: 412  succeeded: 412`, then the assembly report showing the
-13 characteristic columns filled (not 0) and
-`data/out/office/submission_qa.xlsx` written. `--adjudicate` adds the LLM
-tiebreak on rows where the matcher could not separate the top candidates;
-`model: … verdicts rejected` in the summary counts the ones the schema
-refused — a few is fine.
-
-If step 3 or 4 showed problems, run step 5 without `--adjudicate` first;
-adjudication is a refinement, the characteristics are the submission.
-
-## 6. Bring back
-
-- `data/out/office/submission_qa.xlsx` — the deliverable.
-- `data/out/office/assembly_qa.txt` and the `--evaluate` output from step 4.
-- `data/cache/llm/` (the model's cached answers — small, and they make a
-  re-run free) and `data/registry/` (it will have gained characteristics).
-- The run logs if anything looked wrong.
-
-Commit `data/registry/` and `data/calibration/` if they changed; leave
-`data/out/` and `data/cache/` uncommitted (gitignored).
+Do not bring `.env` back on the same stick if it can be avoided; it is
+already here.
 
 ## What can go wrong, and what it means
 
 | Symptom | Meaning | Do |
 |---|---|---|
 | `--ping` times out | not on the network | VPN / office network |
-| `--ping` 401/403 | auth shape | see step 2 |
+| `--ping` 401/403 | auth shape | try removing the explicit `Authorization` header in `azure.py` (the SDK sends one already); send the line |
 | `--ping` 400 mentioning `temperature` | old checkout | `git pull` (fixed 2026-09-12) |
-| `--ping` 400 mentioning `max_tokens` | gateway wants the newer field name | `llm_max_tokens_param: max_completion_tokens` in `config/models.yaml` |
-| rows fail at `retrieve` | search cache missing and no SearxNG | copy `data/cache/search/`, or `docker compose up -d searxng` |
-| rows fail at `fetch` en masse | no internet for retailers | check proxy; the page cache avoids this entirely |
-| `characteristic_rejected` on most rows | prompt/vocabulary mismatch | send the log |
 | `LlmValidationError … input_value=''` | old checkout (64-token ping cap) | `git pull` (fixed 2026-09-12) |
 | `LlmTruncated` | the model's reasoning ate the output cap | `llm_reasoning_effort: low`, else raise `llm_max_output_tokens` (`config/models.yaml`) |
-| `LlmBudgetExceeded` before the step-4 projection | pathological retries | send the log; do not raise the cap |
-| `LlmBudgetExceeded` at the projected size | cap sized for a non-reasoning model | raise `llm_max_tokens_per_run` to 1.5× the projection; rerun (resumes) |
+| `--ping` 400 mentioning `max_tokens` | gateway wants the newer field name | `llm_max_tokens_param: max_completion_tokens` in `config/models.yaml` |
+| rows fail at `retrieve` | search cache missing and no SearxNG | copy `data/cache/search/` (both sheets are in it) |
+| `page-cache hit/miss` shows many misses | page cache not in place — the office network cannot fetch | stop; unzip `data/cache/pages/` into place; re-run (it resumes) |
+| many `fetch http_error: HTTP …` warnings in the artifacts | same — the proxy answered instead of the retailer | same |
+| `characteristic_rejected` on most rows | prompt/vocabulary mismatch | send the log |
+| a row fails at `characteristics` or `match` with `ServiceResponseError`/`Timeout` | gateway hiccup that outlasted three retries | re-run the same command; it resumes |
+| `LlmBudgetExceeded` | 412 rows with adjudication measured 1.02M of the 2M cap; a breach is pathological retries | send the log; do not raise the cap |
+| assembly shows `PERCENTAGE_NATURAL_INGREDIENTS` filled < 412 | rows without values | old checkout — `git pull`, re-run (resumes, re-asks only those rows) |
+| `--evaluate` says `gate-only tree` | the run was started without `--characteristics` | re-run with the flag |
 | values look plausible but wrong | the real P12 finding | the `dev` accuracy table is the evidence; send it |

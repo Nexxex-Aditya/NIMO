@@ -2852,6 +2852,82 @@ value is characteristics, and the unseen-module problem (`specs/classify.md`
 **Status:** standing — measured and rejected; do not rebuild either form.
 
 
+## 2026-09-12 — The first office run: five findings from 412 qa rows and 92 dev rows through the model
+**Decision:** Five changes from reading the office laptop's artifacts
+(`data/out/office`, 670 cached model answers, the `--evaluate` table),
+each measured before it was made; and the deliverable is re-run on a
+second trip with the page cache, because the office submission was
+produced without page evidence.
+
+**1. 111 of 409 submitted rows carried no characteristic values.** The
+registry rebuild of 2026-09-11 was gate-only, so every entity had a module
+and none had values; the office run hit those 111 entities as `tier0_exact`
+and the hit path served the stored (empty) values, with no model call —
+`GLOBAL_PERCENTAGE_NATURAL_INGREDIENTS`, applicable to every module, was
+filled on 298 of 409. "Complete entity" meant "has a module". Fixed in the
+runner: `Stages.extracts_values` (set when an extractor is wired) makes a
+hit on an entity without stored values fetch the entity's own page,
+extract, and `refresh` the entity; and `values_missing()` makes a complete
+row whose values were never extracted (`gate_only`, or `registry` with
+none) stale on resume under such a run — verified against the office tree:
+exactly the 111. Tested both ways (a gate-only run still neither fetches
+nor refreshes; a valued entity is still served).
+
+**2. The office network fails 94% of page fetches.** 2240 of 2384 qa
+fetches and 709 of 736 dev fetches were `http_error` with zero body —
+against 12% at home — and `hosts that blocked us` said 1, because a proxy
+error page is not a 403. So the qa submission's URL column was selected
+with almost no evidence (163 of 409 selections differ from the home run's,
+e.g. `qa:0` Superdrug's product page → an Aveda hair page) and its
+characteristics were coded from the record alone. The runbook called the
+page cache optional; it is required. Also fixed: a failed fetch now records
+`fetch <status>: HTTP <code> (<detail>)` as its first parse warning, so
+`05` §5's aggregate-domain-block pattern is visible in the artifacts rather
+than only in a counter that had nothing to say.
+
+**3. The first P12 number is 68.6% (354/516) over the 92 dev rows that
+ran, and the evaluator printed 14.7%.** It divided by all 2411 applicable
+cells, counting the 320 rows that never ran (no dev search cache) as
+wrong — right for a complete run, misleading for a partial one. Now both
+views print, labelled, with a footer when they differ.
+
+**4. Where the guideline's written default and the coders' practice
+differ, the truth follows the practice** — `specs/characteristics.md` §2a
+has the table. FLUORIDE: guideline "WITHOUT … is the default", labelled
+data WITH on 123/148, the model WITHOUT on 21 of 31 with 20 of those
+pages/records never mentioning fluoride; on real pages the ceiling moves
+from ~46% to ~91%. FLAVOUR: `NOT STATED` on 113/278, never blank, the
+model null. ORAL_CARE_FUNCTION: 2–3 components on 65% of truths, one on
+70% of answers. `practice_defaults` in config carry value + measurement
+(refused without it), rendered after the untouched guideline; prompt rules
+2 and 4 revised. The prompt hash changes, so every row is re-asked next
+run — deliberate, and cheap (~1M tokens measured for 412 rows).
+
+**5. Three rows failed on transient gateway errors** (one 60 s read
+timeout during adjudication, two "remote end closed connection") because
+the adapter had no retry — `04` §6 requires one. `retry_transient()`:
+three tries, full-jitter backoff, transport errors and 5xx only, pure
+apart from an injected sleep, tested.
+
+**Also measured, no change needed:** 559 calls / 1.02M tokens for 412 rows
+with adjudication (the 2M budget stands; 4096-token cap never hit;
+reasoning 0–270 tokens per call); the xlsx and csv assembled here from the
+office artifacts are byte-identical to the office's (`04` §5, across
+machines); the record-only dev tree the office evaluated was gate-only —
+the wiring is correct (reproduced here: a dummy key reaches the network),
+the flag was simply not passed.
+**Affects:** `src/nimo/run/runner.py`, `artifacts.py`, `live.py`,
+`compose.py`; `src/nimo/llm/azure.py`, `config.py`; `src/nimo/extract/page.py`;
+`src/nimo/characteristics/evaluate.py`, `config.py`, `extract.py`,
+`__init__.py`; `config/models.yaml`, `config/characteristics.yaml`,
+`config/prompts/characteristics.md`; tests in `tests/run`, `tests/llm`,
+`tests/extract`, `tests/characteristics` (771 pass);
+`specs/characteristics.md` §2a/§6; `04` §1 P11/P12; `docs/06-office-runbook.md`;
+`PROGRESS.md`; `data/registry/` (+1 dev entity from the finished harvest;
+the office registry was unchanged).
+**Status:** standing — the deliverable is the second-trip run.
+
+
 ---
 
 # Open questions — resolve with organizers

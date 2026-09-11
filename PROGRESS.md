@@ -9,32 +9,42 @@ commands directly) before trusting either source.
 
 ## Right now
 
-Phase: ALL PHASES BUILT (P0–P16, P16 = the interactive UI) AND THE SUBMISSION PATH HAS RUN END TO END.
-`data/out/submission_qa.xlsx` (gitignored) exists: 412 rows, URL + REASONING
-+ MODULE on every row, the 13 characteristic columns as the null pattern only
-(gate-only; values need the model). `data/out/demo_qa.html` is the demo page.
-The registry (`data/registry/`, committed) holds 111 GTIN-confirmed entities
-with modules, rebuilt 2026-09-11 under the current ranking.
+Phase: ALL PHASES BUILT (P0–P16). THE FIRST OFFICE RUN HAPPENED (2026-09-12)
+AND ITS OUTPUT IS NOT THE DELIVERABLE — the second trip's is.
 
-What remains is on the office laptop (NIQ network): a first live call to
-`src/nimo/llm/azure.py`, then `specs/characteristics.md` §6
-(`--live --characteristics` on dev → `python -m nimo.characteristics
---evaluate`) and `specs/adjudicate.md` §8. Then re-run qa with
-`--live --characteristics [--adjudicate]` and re-assemble — everything else
-is cached, so that run costs only the model calls.
+What the first trip proved: the Azure adapter works on the NIQ network
+(after two measured fixes: the model rejects `temperature=0`; it reasons
+before it writes, so the output cap is 4096); 412 qa rows ran with
+`--characteristics --adjudicate` in 61 min, 559 calls, 1.02M tokens; the
+xlsx assembled here from the office artifacts is byte-identical to the
+office's.
 
-**THE NUMBER THAT MATTERS FOR PLANNING — MEASURED 2026-09-11:** the full
-412-row `qa` run completed on free engines in **107 minutes, 0 failures, 0
-cooldown waits**, writing **111 registry entities** (GTIN-confirmed pages).
-No paid search key exists and none is needed for a submission run. Re-run
-cost is cache-bound. 149 retailer hosts serve bot walls — that half of Q6 is
-for the organizers.
+What it found (decision log 2026-09-12, "The first office run"), all fixed:
+(1) 111 of 409 submitted rows had NO characteristic values — registry hits
+on gate-only entities; (2) **the office network fails 94% of page fetches**
+(a proxy), so that run selected URLs and coded values with almost no page
+evidence — `data/cache/pages/` is REQUIRED there; (3) the evaluator misread
+a partial run (14.7% printed, 68.6% over the rows that ran); (4) where the
+guideline's written default and the coders' practice differ the truth
+follows the practice (FLUORIDE, FLAVOUR, ORAL_CARE_FUNCTION) — measured
+practice defaults now ride beside the guideline, prompt hash changed; (5)
+three rows failed on transient gateway errors — the adapter now retries.
+
+**Next: the second office trip**, `docs/06-office-runbook.md` — carry all
+three caches, run dev gate → qa submission → adjudication A/B into
+`data/out/office2*`, bring back `data/out/`, `data/cache/llm/`,
+`data/registry/`, both `--evaluate` tables. Then here: byte-compare,
+record the P11 delta and P12 accuracy in `04` §1, commit the registry.
+
+**THE NUMBERS THAT MATTER FOR PLANNING:** free-engine qa harvest 412/412 in
+107 min (2026-09-11); dev harvest 412/412 (2026-09-12); both search caches
+complete. Model: ~2.5K tokens/call, ~1M tokens per 412-row run with
+adjudication, reasoning 0–270 tokens/call. P12 first measurement: 68.6%
+over 92 dev rows WITHOUT page evidence (record-only in effect).
 
 **P10 state:** curve fitted on the full harvest and committed
-(`data/calibration/curve.json`: 236 pairs, **held-out ECE 0.068**; in-sample
-ECE is 0 by construction and labelled so). `--live` loads it. Abstention is
-OFF (`tau_abstain: 0.0`, wired, `[PROVISIONAL — Q3]`); the trade-off table
-in `python -m nimo.calibrate` is what turning it on buys.
+(`data/calibration/curve.json`: 236 pairs, **held-out ECE 0.068**).
+Abstention OFF (`tau_abstain: 0.0`, `[PROVISIONAL — Q3]`).
 
 ## Carried-forward work, explicitly not done
 
@@ -57,16 +67,20 @@ in `python -m nimo.calibrate` is what turning it on buys.
 
 ## Verified state (re-check on resume, don't trust blindly)
 
-Last `make check`: PASS as of the P15 commit. `make` is absent on
-this machine; ran its four commands directly per `04` §11:
+Last `make check`: PASS as of the 2026-09-12 office-findings commits.
+`make` is absent on this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (754 passed)
+  uv run pytest                          -> EXIT 0  (771 passed)
 
 ## Do NOT re-do
 
-- P0–P15: built (P7's recall gate open; P10's curve fitted interim; P11's delta and P12's accuracy unmeasured off-network — all stated), gates verified by execution where they can be, committed.
+- P0–P16: built; P11's delta and P12's page-evidence accuracy await the second office trip — stated in `04` §1.
+- **A registry hit on an entity WITHOUT stored values must extract when the run extracts** (`Stages.extracts_values`) and such rows are stale on resume (`values_missing`). 111 submitted rows were empty before this. Don't "simplify" the hit path back to "has a module == complete".
+- **The office network cannot fetch retail pages** (94% `http_error`). Never plan an office run without `data/cache/pages/`; never read an office fetch failure as a retailer bot wall without checking the recorded `fetch http_error: HTTP …` warning.
+- **The pinned model is a reasoning model**: `llm_temperature: null` (it rejects 0), cap 4096 (hidden reasoning counts against it), `LlmTruncated` on a cap hit, `reasoning_tokens` logged. Determinism rests on the response cache.
+- **Practice defaults are measured, not written**: `config/characteristics.yaml` `practice_defaults` carry value + dev measurement and are refused without one; the guideline text is never edited. Page evidence as a MODULE signal was measured and rejected (`specs/classify.md` §6a).
 - **P15/P16: the demo and the UI render the artifacts; they never compute.** The pipeline is composed ONCE in `run/compose.py`; the CLI, demo and UI all call it. Don't add a second composition.
 - **P14: passthrough columns are the WORKBOOK's bytes, never `RawRow`'s repaired ones.** A failed row is blank in every output column. Identifier columns are text cells. The xlsx is byte-identical only because of the deterministic repack — openpyxl re-stamps `dcterms:modified` inside `save()`; don't remove `_repack_deterministic`.
 - **P13: REASONING is COMPOSED from the typed record, never generated.** `03` §1 and §4 stage 7 say so now. Don't add a model call that can introduce claims; a style pass, if ever wanted, goes after the composed text and never replaces it. The runner has EIGHT stages.
