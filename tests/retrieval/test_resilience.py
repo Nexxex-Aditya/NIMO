@@ -28,6 +28,7 @@ from nimo.retrieval import (
 
 CONFIG = RetrievalConfig(
     max_candidates=20,
+    fetch_budget=8,
     per_strategy_limit=8,
     strategy_order=("S1", "S2", "S3", "S4", "S5"),
     engines=("brave", "startpage", "bing"),  # test fixture keeps 3 to exercise the breaker
@@ -37,7 +38,10 @@ CONFIG = RetrievalConfig(
     backoff_base_s=0.001,
     backoff_max_s=0.002,
     min_interval_s=0.001,
-    early_exit_on_full_cap=True,
+    early_exit=True,
+    engine_mode="portfolio",  # these tests cover the portfolio path; rotation has its own
+    wait_for_cooldown=False,
+    max_cooldown_waits=4,
     engine_failure_threshold=3,
     engine_cooldown_s=900.0,
     cache_enabled=True,
@@ -259,6 +263,30 @@ def test_early_exit_stops_once_the_cap_is_full() -> None:
     assert issued == ["S1"], f"expected early exit after S1, issued {issued}"
 
 
+def test_early_exit_fires_at_the_fetch_budget_not_the_candidate_cap() -> None:
+    """**Measured on the first 8 harvested qa rows:** with the exit at
+    `max_candidates` (20) and the runner fetching 8, S3 and S5 ran on every
+    row, produced 86 candidates, and 0 of them were fetched. Under
+    (strategy order, rank) ordering the fetched set is fixed the moment
+    `fetch_budget` safe candidates exist, so exiting there is exact, not a
+    heuristic (`specs/retrieval.md` §5a.7)."""
+    issued: list[str] = []
+
+    def five_each(query: SearchQuery, limit: int) -> list[SearchResult]:
+        issued.append(query.strategy)
+        return [
+            SearchResult(f"https://shop.com/{query.strategy}/{i}", "brave", i, None)
+            for i in range(1, 6)
+        ]
+
+    config = RetrievalConfig(**{**CONFIG.__dict__, "fetch_budget": 8, "max_candidates": 20})
+    queries = [SearchQuery(name, f"q{name}") for name in ("S1", "S2", "S3", "S4", "S5")]
+    merged = merge_candidates(queries, five_each, config)
+    assert issued == ["S1", "S2"], f"5 + 5 >= 8: S3 onward cannot enter the top 8; got {issued}"
+    # and the fetched prefix is exactly what those two strategies produced
+    assert [c.source_query for c in merged[: config.fetch_budget]] == ["S1"] * 5 + ["S2"] * 3
+
+
 def test_early_exit_can_be_disabled_for_a_recall_experiment() -> None:
     """Measuring reach is a different job from spending the budget well."""
     issued: list[str] = []
@@ -270,9 +298,7 @@ def test_early_exit_can_be_disabled_for_a_recall_experiment() -> None:
             for i in range(1, 21)
         ]
 
-    config = RetrievalConfig(
-        **{**CONFIG.__dict__, "per_strategy_limit": 20, "early_exit_on_full_cap": False}
-    )
+    config = RetrievalConfig(**{**CONFIG.__dict__, "per_strategy_limit": 20, "early_exit": False})
     merge_candidates(
         [SearchQuery(name, f"q{name}") for name in ("S1", "S2", "S3")], counting, config
     )
@@ -290,6 +316,266 @@ def test_early_exit_does_not_stop_before_the_cap_is_reached() -> None:
         [SearchQuery(name, f"q{name}") for name in ("S1", "S2", "S3")], counting, CONFIG
     )
     assert issued == ["S1", "S2", "S3"]
+
+
+# --- engine rotation (`specs/retrieval.md` §5a.7) ----------------------------
+
+
+ROTATE = RetrievalConfig(**{**CONFIG.__dict__, "engine_mode": "rotate", "engines": ("a", "b", "c")})
+
+
+def _payload(
+    engine: str, urls: list[str], unresponsive: list[str] | None = None
+) -> dict[str, object]:
+    body: dict[str, object] = {
+        "results": [{"url": url, "engine": engine} for url in urls],
+    }
+    if unresponsive:
+        body["unresponsive_engines"] = [[name, "CAPTCHA"] for name in unresponsive]
+    return body
+
+
+def _rotating_client(
+    answers: dict[str, list[str]],
+    *,
+    unresponsive: frozenset[str] = frozenset(),
+    config: RetrievalConfig = ROTATE,
+    cache: SearchCache | None = None,
+) -> tuple[SearxngClient, list[str]]:
+    """A client whose transport answers per engine, recording which engine
+    each request asked for."""
+    asked: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        engine = request.url.params["engines"]
+        asked.append(engine)
+        if engine in unresponsive:
+            return httpx.Response(200, json=_payload(engine, [], [engine]))
+        return httpx.Response(200, json=_payload(engine, answers.get(engine, [])))
+
+    client = SearxngClient(
+        base_url="http://searxng.test",
+        config=config,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+        breaker=EngineBreaker(failure_threshold=3, cooldown_s=900.0),
+        cache=cache,
+        clock=lambda: 0.0,
+    )
+    return client, asked
+
+
+def test_rotation_sends_each_query_to_one_engine_and_cycles() -> None:
+    """Every request used to hit all three engines at once, so all three
+    exhausted in lockstep. One engine per query cuts each engine's rate by a
+    third for the same 8 results a strategy takes."""
+    client, asked = _rotating_client(
+        {"a": ["https://a/1"], "b": ["https://b/1"], "c": ["https://c/1"]}
+    )
+    for text in ("q1", "q2", "q3", "q4"):
+        client.search(SearchQuery("S3", text), limit=8)
+    assert asked == ["a", "b", "c", "a"]
+
+
+def test_rotation_tries_the_next_engine_on_an_empty_answer() -> None:
+    """Measured: bare-barcode results come from `google cse` 11 times in 13.
+    Without this rule, rotation would hand S1 to an engine that does not
+    index barcodes on two rows in three and lose the strategy that produced
+    the only GTIN hit. An empty index on one engine says nothing about the
+    others."""
+    client, asked = _rotating_client({"a": [], "b": ["https://b/1"]})
+    results = client.search(SearchQuery("S1", '"5011309895612"'), limit=8)
+    assert [r.url for r in results] == ["https://b/1"]
+    assert asked == ["a", "b"]
+    # the cursor moved past the engine that ANSWERED (b), not the one that was
+    # empty (a): the next query starts on c
+    client.search(SearchQuery("S2", "next"), limit=8)
+    assert asked[2] == "c"
+
+
+def test_rotation_returns_empty_only_when_every_engine_answered_empty() -> None:
+    client, asked = _rotating_client({})
+    assert client.search(SearchQuery("S1", "nothing"), limit=8) == []
+    assert asked == ["a", "b", "c"]
+
+
+def test_rotation_moves_past_an_unresponsive_engine_and_feeds_the_breaker() -> None:
+    client, asked = _rotating_client({"b": ["https://b/1"]}, unresponsive=frozenset({"a"}))
+    results = client.search(SearchQuery("S3", "x"), limit=8)
+    assert [r.url for r in results] == ["https://b/1"]
+    assert asked == ["a", "b"]
+    # the next query starts at c (cursor moved past b, the engine that answered)
+    client.search(SearchQuery("S3", "y"), limit=8)
+    assert asked[2] == "c"
+
+
+def test_rotation_raises_when_every_engine_asked_was_unresponsive() -> None:
+    """Live attempts were made and none answered: a failure, not an empty
+    result (`04` §4)."""
+    client, asked = _rotating_client({}, unresponsive=frozenset({"a", "b", "c"}))
+    with pytest.raises(SearchError, match="every engine asked was unresponsive"):
+        client.search(SearchQuery("S3", "x"), limit=8)
+    assert asked == ["a", "b", "c"]
+
+
+def test_rotation_cache_hits_on_any_engine_that_answered(tmp_path: Path) -> None:
+    """A warm re-run must hit regardless of which engine happened to answer
+    the first time — otherwise rotation state would make re-runs re-query."""
+    cache = default_cache(tmp_path, ttl_days=14.0, enabled=True)
+    client, asked = _rotating_client({"a": [], "b": ["https://b/1"]}, cache=cache)
+    client.search(SearchQuery("S1", "q"), limit=8)
+    assert asked == ["a", "b"]
+    # second client, fresh cursor, same cache: no request at all
+    client2, asked2 = _rotating_client({"a": [], "b": ["https://b/1"]}, cache=cache)
+    assert [r.url for r in client2.search(SearchQuery("S1", "q"), limit=8)] == ["https://b/1"]
+    assert asked2 == []
+
+
+def test_rotation_caches_empties_per_engine_and_skips_them(tmp_path: Path) -> None:
+    """A cached empty rules that engine out of the live attempts without
+    ruling out the others."""
+    cache = default_cache(tmp_path, ttl_days=14.0, enabled=True)
+    client, asked = _rotating_client({}, cache=cache)
+    client.search(SearchQuery("S1", "q"), limit=8)
+    assert asked == ["a", "b", "c"]
+    client2, asked2 = _rotating_client({"c": ["https://c/1"]}, cache=cache)
+    # a, b, c are all cached empty -> nothing is asked, empty is served
+    assert client2.search(SearchQuery("S1", "q"), limit=8) == []
+    assert asked2 == []
+
+
+# --- waiting out a fully-broken portfolio ---------------------------------------
+
+
+class _FakeTime:
+    """Clock and sleep together, so a sleep advances what the clock reads —
+    the wait is exercised without the test taking 15 minutes."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.slept: list[float] = []
+
+    def clock(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.slept.append(seconds)
+        self.now += seconds
+
+
+def _waiting_client(
+    handler: object, fake: _FakeTime, *, max_waits: int = 4, cooldown: float = 900.0
+) -> SearxngClient:
+    config = RetrievalConfig(
+        **{
+            **CONFIG.__dict__,
+            "wait_for_cooldown": True,
+            "max_cooldown_waits": max_waits,
+            "engine_cooldown_s": cooldown,
+        }
+    )
+    return SearxngClient(
+        base_url="http://searxng.test",
+        config=config,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),  # type: ignore[arg-type]
+        breaker=EngineBreaker(failure_threshold=1, cooldown_s=cooldown),
+        clock=fake.clock,
+        sleep=fake.sleep,
+    )
+
+
+def test_a_fully_broken_portfolio_is_waited_out_then_queried() -> None:
+    """The measured failure: 8 rows, then every engine broke and the other
+    404 rows failed in 137 seconds. Unattended is the only way 412 rows
+    finish on free engines, so the client sleeps until the earliest engine
+    reopens instead of raising."""
+    fake = _FakeTime()
+    client = _waiting_client(
+        lambda r: httpx.Response(
+            200, json={"results": [{"url": "https://x/1", "engine": "brave"}]}
+        ),
+        fake,
+    )
+    client.breaker.record_failure("brave", now=100.0)
+    client.breaker.record_failure("startpage", now=200.0)
+    client.breaker.record_failure("bing", now=300.0)
+    fake.now = 400.0
+    results = client.search(SearchQuery("S3", "x"), limit=8)
+    assert [r.url for r in results] == ["https://x/1"]
+    assert fake.slept == [pytest.approx(600.0)]  # until brave reopens at 100 + 900
+    assert client.breaker.available(CONFIG.engines, fake.now) == ["brave"]
+
+
+def test_waiting_is_bounded_and_then_fails_fast() -> None:
+    """`max_cooldown_waits` consecutive waits with no successful query raises,
+    and every later call raises at once — a portfolio silent for an hour is a
+    run to look at, not to keep waiting on."""
+    fake = _FakeTime()
+
+    def always_captcha(request: httpx.Request) -> httpx.Response:
+        engine = request.url.params["engines"]
+        return httpx.Response(
+            200,
+            json={
+                "results": [],
+                "unresponsive_engines": [[e, "CAPTCHA"] for e in engine.split(",")],
+            },
+        )
+
+    client = _waiting_client(always_captcha, fake, max_waits=2, cooldown=100.0)
+    for engine in CONFIG.engines:
+        client.breaker.record_failure(engine, now=0.0)
+    # ONE call: wait 1 -> engines reopen -> all CAPTCHA -> re-open -> wait 2 ->
+    # same -> the bound. A row either gets an answer or the run has
+    # established that the portfolio is dead.
+    with pytest.raises(SearchError, match="consecutive cooldown waits"):
+        client.search(SearchQuery("S3", "x"), limit=8)
+    assert len(fake.slept) == 2
+    # subsequent calls do not wait again
+    with pytest.raises(SearchError, match="consecutive cooldown waits"):
+        client.search(SearchQuery("S3", "y"), limit=8)
+    assert len(fake.slept) == 2
+
+
+def test_a_successful_query_resets_the_wait_budget() -> None:
+    fake = _FakeTime()
+    client = _waiting_client(
+        lambda r: httpx.Response(
+            200, json={"results": [{"url": "https://x/1", "engine": "brave"}]}
+        ),
+        fake,
+        max_waits=1,
+    )
+    for engine in CONFIG.engines:
+        client.breaker.record_failure(engine, now=0.0)
+    client.search(SearchQuery("S3", "x"), limit=8)  # one wait, then success
+    assert len(fake.slept) == 1
+    for engine in CONFIG.engines:
+        client.breaker.record_failure(engine, now=fake.now)
+    client.search(SearchQuery("S3", "y"), limit=8)  # allowed to wait again
+    assert len(fake.slept) == 2
+
+
+def test_wait_disabled_raises_immediately() -> None:
+    """The foreground behaviour is kept: `wait_for_cooldown: false` fails the
+    row at once so a demo run does not hang for 15 minutes."""
+    fake = _FakeTime()
+    client = _waiting_client(lambda r: httpx.Response(200), fake)
+    client = SearxngClient(**{**client.__dict__, "config": CONFIG})
+    for engine in CONFIG.engines:
+        client.breaker.record_failure(engine, now=0.0)
+    with pytest.raises(SearchError, match="every engine is circuit-broken"):
+        client.search(SearchQuery("S3", "x"), limit=8)
+    assert fake.slept == []
+
+
+def test_shipped_config_is_set_for_an_unattended_run() -> None:
+    """No paid search key exists, so the free path has to carry the full qa
+    run; that is only possible unattended, with rotation and waiting on."""
+    config = load_retrieval_config()
+    assert config.engine_mode == "rotate"
+    assert config.wait_for_cooldown is True
+    assert config.early_exit is True
+    assert config.fetch_budget <= config.max_candidates
 
 
 # --- shipped config ----------------------------------------------------------

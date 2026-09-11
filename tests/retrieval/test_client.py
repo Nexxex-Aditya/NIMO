@@ -20,6 +20,7 @@ from nimo.retrieval import (
 
 CONFIG = RetrievalConfig(
     max_candidates=20,
+    fetch_budget=8,
     per_strategy_limit=8,
     strategy_order=("S1", "S2", "S3", "S4", "S5"),
     engines=("google", "bing"),
@@ -29,7 +30,10 @@ CONFIG = RetrievalConfig(
     backoff_base_s=0.001,  # keep the retry tests fast; jitter is still exercised
     backoff_max_s=0.002,
     min_interval_s=0.001,
-    early_exit_on_full_cap=True,
+    early_exit=True,
+    engine_mode="portfolio",  # these tests cover the portfolio path; rotation has its own
+    wait_for_cooldown=False,
+    max_cooldown_waits=4,
     engine_failure_threshold=3,
     engine_cooldown_s=900.0,
     cache_enabled=False,  # the cache has its own tests; keep these about HTTP

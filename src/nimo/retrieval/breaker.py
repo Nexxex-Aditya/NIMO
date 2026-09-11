@@ -69,6 +69,15 @@ class EngineBreaker:
             self._opened_at[engine] = now
             self._blocks[engine] = self._blocks.get(engine, 0) + 1
 
+    def reopens_at(self, engines: tuple[str, ...]) -> float | None:
+        """When the earliest currently-open circuit among `engines` closes,
+        or `None` if none is open. What a caller waiting out a fully-broken
+        portfolio sleeps until (`specs/retrieval.md` §5a.7)."""
+        opened = [self._opened_at[engine] for engine in engines if engine in self._opened_at]
+        if not opened:
+            return None
+        return min(opened) + self.cooldown_s
+
     @property
     def blocked_engines(self) -> dict[str, int]:
         """How many times each engine has been circuit-broken this run.

@@ -4,9 +4,19 @@
 # change lives here.
 
 # §6 — "Target 10-20 unique candidates. Cap hard; more costs fetch budget for
-# no gain" (`03` §4 stage 2). 20 is the top of that range: P8 fetches every
-# candidate, so this number multiplies directly into crawl cost.
+# no gain" (`03` §4 stage 2). 20 is the hard cap on the RECORDED list — the
+# trace and the retrieve artifact never hold more than this.
 max_candidates: 20
+
+# How many of those candidates the runner actually fetches, per row. Was a
+# constant in `run/__main__.py`; lives here because it is the number the
+# query budget is really governed by (`specs/retrieval.md` §5a.7): the
+# candidate list is ordered (strategy order, rank), so once this many safe
+# unique candidates exist, NO later strategy can enter the fetched set, and
+# every further query is spent on candidates that are never looked at.
+# Measured on the first 8 harvested qa rows: S3 and S5 produced 86 candidates
+# and 0 of them were fetched. Early exit (below) fires at this number.
+fetch_budget: 8
 
 # Per-strategy result limit, before merging and the global cap above. Kept
 # below max_candidates so no single strategy can fill the whole budget and
@@ -16,15 +26,30 @@ per_strategy_limit: 8
 
 # Strategy order. Merged results keep the FIRST strategy that produced a URL
 # as their provenance, and rank by (strategy order, rank within strategy) —
-# so a barcode-exact hit outranks a verbatim-text hit regardless of what the
-# engine thought (`specs/retrieval.md` §6).
+# so the first strategy that fills `fetch_budget` decides what gets fetched
+# (`specs/retrieval.md` §6, §5a.7).
 #
 # Measured availability (`specs/retrieval.md` §2):
 #   S1/S2  dev  18/412 (4%)   qa 412/412 (100%)   <- the dev/qa asymmetry
 #   S3     dev 225/412        qa 220/412
 #   S4     dev 223/412 (54%)  qa 256/412 (62%)    <- 28 of 50 retailers mapped
 #   S5     dev 412/412        qa 412/412
-strategy_order: [S1, S2, S3, S4, S5]
+#
+# S1 (bare barcode) is LAST, not first, as of 2026-09-11 — `03` §4 stage 2
+# lists it first and this is a measured correction (`specs/retrieval.md`
+# §5a.7). Over the 10 harvested qa rows, from the search cache: S2 (barcode
+# + brand) returned 8 results with the brand in the URL or title on 8 of 8
+# rows where it ran (brand signal 8/8 on six rows, 7/8, 5/8, 4/8); S1 was
+# EMPTY on 5 of 10 rows, returned 1-2 results on 3 (every one also in S2's
+# list — `allibhavan.com`, the row `qa:5` GTIN hit, was in S2's results and
+# only "owned" by S1 through provenance order), and on the one row where it
+# filled the budget (`qa:8`, on Brave) all 8 results were pages that merely
+# contain the digit string: `callchecker.co.uk/prefix/0750006`,
+# `eveandersson.com/pi/digits/1000000`. That filled the fetch set with junk
+# and stopped S2 from running at all. A bare number is a bad query on an
+# engine that matches digits; the brand word is what disambiguates it. S1
+# stays as the fallback `03` defines, for a row where nothing else fills.
+strategy_order: [S2, S3, S4, S5, S1]
 
 # SearxNG engines — names are EXACT and verified against `GET /config`.
 #
@@ -57,36 +82,51 @@ engines: [google cse, duckduckgo, brave]
 
 # --- Query budget ----------------------------------------------------------
 #
-# Stop issuing strategies for a row once `max_candidates` unique, safe
-# candidates have been collected. Measured: a single strategy against this
-# engine portfolio returns 7-30 unique candidates, so the cap is usually met
-# by S1 (qa, where 412/412 rows have a barcode) or S3 (dev).
+# Stop issuing strategies for a row once `fetch_budget` unique, safe
+# candidates have been collected. Under strategy-major ordering that is the
+# exact point past which a further query cannot change what gets fetched —
+# not a heuristic (`specs/retrieval.md` §5a.7).
 #
-# MEASURED on 12 real qa rows against the live portfolio (2026-09-11), not
-# projected from theory:
-#
-#   strategy calls made : 37   (naive, all strategies: 51)  -> 73%
-#   candidates collected: 240  = 20.0/row, i.e. the cap filled on every row
-#   cold wall time      : 72.4s
-#   WARM wall time      : 5.3s (7%), byte-identical candidates
-#   engines broken      : brave x1 - and the run continued on the other two
-#
-# Full 412-row qa projection: ~1270 queries, ~42 minutes cold, then free.
-# The saving is less than the ideal 412 because Brave dropped out partway and
-# fewer results per query means more strategies are needed to fill the cap —
-# which is the portfolio and early exit interacting exactly as intended.
-#
-# 42 minutes for a run that COMPLETES, is cached, and is resumable is the
-# whole point. The second run costs 7% of the first, so iterating on the
-# matcher and running the demo are both effectively free.
-#
-# Cross-row deduplication was measured and deliberately NOT built: 1904 of
-# 1904 qa queries are distinct, because S5 is the verbatim description and S3
-# carries per-row variant terms. It would have bought nothing.
+# HISTORY, kept because both numbers were wrong in instructive ways:
+#   - an earlier version exited at `max_candidates` (20) and projected a full
+#     qa run at "~1270 queries, ~42 minutes". Measured with the full pipeline:
+#     8 rows per cooldown window, then every engine blocked. Half of each
+#     row's queries (S3, S5) were buying candidates ranked 9-20 that the
+#     runner never fetched.
+#   - cross-row query deduplication was measured and deliberately NOT built:
+#     1904 of 1904 qa queries are distinct (S5 is the verbatim description,
+#     S3 carries per-row variant terms). It would have bought nothing.
 #
 # Set false to force every strategy for a recall experiment, where the point
 # is to measure reach rather than to spend the budget well.
-early_exit_on_full_cap: true
+early_exit: true
+
+# --- Engine mode (`specs/retrieval.md` §5a.7) ------------------------------
+#
+#   portfolio : every request fans out to every available engine at once.
+#               Best recall per query; every engine exhausts in lockstep.
+#   rotate    : each query goes to ONE engine, cycling through the available
+#               ones, so each engine sees a third of the request rate. An
+#               EMPTY answer from one engine is not evidence about the others,
+#               so on empty the next engine is tried — measured: bare-barcode
+#               results come from `google cse` 11 times in 13, and rotating
+#               S1 onto DuckDuckGo without that rule would lose the strategy
+#               that produced the only GTIN hit. Empties are cached per
+#               engine. Per engine, the worst case costs exactly what
+#               portfolio mode costs; the common case costs a third.
+engine_mode: rotate
+
+# --- Waiting out a fully-broken portfolio ------------------------------------
+#
+# When every engine is circuit-broken: `false` raises at once (the remaining
+# rows fail fast as typed RowFailures — right for a foreground run); `true`
+# sleeps until the earliest engine reopens and continues — the only way 412
+# rows complete unattended on free engines. Bounded by `max_cooldown_waits`:
+# that many consecutive waits with NO successful query in between raises,
+# and every later call raises immediately. A portfolio silent for an hour is
+# a run to stop and look at, not to keep waiting on.
+wait_for_cooldown: true
+max_cooldown_waits: 4
 
 # --- Per-engine circuit breaker (`04` §6) ----------------------------------
 #

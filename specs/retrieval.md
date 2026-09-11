@@ -276,9 +276,12 @@ product (`04` §4).
 
 ### 5a.3 Early exit once the candidate cap is full
 
-The largest lever on budget. Stop issuing strategies for a row once
-`max_candidates` unique safe candidates are collected — every further strategy
-spends a query on candidates that would be discarded anyway.
+The largest lever on budget. Stop issuing strategies for a row once the
+candidates that will actually be consumed are collected — every further
+strategy spends a query on candidates that would be discarded anyway.
+**Superseded in one detail by §5a.7:** the threshold is `fetch_budget`, not
+`max_candidates`, because under strategy-major ordering the fetched set is
+fixed once that many exist.
 
 Cross-row query deduplication was measured and **deliberately not built**:
 1904 of 1904 `qa` queries are distinct, because S5 is the verbatim description
@@ -381,6 +384,86 @@ Fixed structurally: `_assert_engines_honoured` raises if any result carries
 an engine tag that was not requested. Re-measured with tags verified:
 **`google cse` 87% (60/60 tagged), `duckduckgo` 82% (40/40)**, brave
 suspended from probing, mojeek 0%. `engines: [google cse, duckduckgo, brave]`.
+
+### 5a.7 Making the free portfolio carry a full `qa` run — no paid key exists
+
+**Measured 2026-09-11, after the P10 harvest:** 8 rows per cooldown window
+before all three engines circuit-broke, then the remaining 404 rows failed at
+`retrieve` in 137 seconds. And there is no paid search key — that option is
+closed, not deferred. So the free path has to carry the submission run, and
+three things about the 2026-09-11 design were spending the budget badly.
+Each was measured from the 8 rows' own artifacts before anything changed:
+
+**1. Half of every row's queries bought candidates that were never fetched.**
+The candidate list is ordered `(strategy order, rank)` and capped at 20, and
+the runner fetches the first 8. Under strategy-major ordering, **once 8 safe
+unique candidates exist, no later strategy can enter the fetched set** — its
+results sort after every earlier strategy's. Measured: S3 and S5 ran on all 8
+rows, produced 86 candidates, and **0 of the 86 were fetched**. The early-exit
+threshold is therefore `fetch_budget`, not `max_candidates`: that is the
+exact point past which a further query provably cannot change the outcome,
+not a heuristic. `fetch_budget` moves from a constant in `run/__main__.py`
+into `config/retrieval.yaml` (`04` §9), and `max_candidates` stays as the hard
+cap on the recorded list.
+
+What that gives up: on `qa`, S3/S5 rarely run. The artifacts say that is
+cheap — their unfetched candidates were `elle.com`, `sec.gov`,
+`pmc.ncbi.nlm.nih.gov`, `kinoteater.ee`, `worldradiohistory.com`: the
+retailer-abbreviation soup from §2a producing junk text queries, as logged.
+The four UK pharmacies S3 found for `qa:6` are the real loss and are
+recorded here rather than hidden. `early_exit: false` still forces every
+strategy for a recall experiment.
+
+**2. Every request hit all three engines at once, so all three exhausted in
+lockstep.** The unit that gets rate-limited is the engine, per IP, per time.
+`engine_mode: rotate` sends each query to **one** engine, cycling through the
+available ones, so each engine sees a third of the request rate for the same
+`per_strategy_limit: 8` results per query — one engine returns 8-10, and the
+limit was already 8.
+
+The rule that makes rotation safe rather than lossy: **an empty answer from
+one engine is not evidence about the others, so on empty the next available
+engine is tried.** Measured: bare-barcode (S1) results come from `google cse`
+11 times in 13; DuckDuckGo indexes few of them. Without the rule, rotation
+would hand S1 to DuckDuckGo on two rows in three and lose the strategy that
+produced the only GTIN hit (`qa:5`). With it, per engine the worst case
+(every engine asked once) costs exactly what the portfolio costs today, and
+the common case costs a third. Empties are cached per engine so a re-run
+does not re-ask.
+
+The cache key stays `(query, engine set)`; under rotation the set is one
+engine, and a lookup consults every configured engine's entry so a warm
+re-run hits regardless of which engine happened to answer.
+
+**3. A fully-broken portfolio failed the rest of the run in seconds.** Right
+for a foreground run; wrong for an unattended one, and unattended is the only
+way 412 rows get done on free engines. `wait_for_cooldown: true` makes the
+client sleep until the earliest engine reopens, then continue. Bounded:
+`max_cooldown_waits` consecutive waits with **no successful query in between**
+raises, and every later call raises immediately — a portfolio that has been
+silent for an hour is a run to stop and look at, not to keep waiting on. The
+sleep is injected like the clock (`04` §5), so the wait is tested without
+sleeping.
+
+**4. S1 moves last — found by the live check of (1)-(3).** Two fresh rows
+through the rotated, early-exiting client: `qa:9` resolved in one query (S2
+on DuckDuckGo → `romystore.co.uk`, JSON-LD GTIN equal → write-back, the
+second registry entity). `qa:8` (`HTC` dental floss) went S1 → Brave → **8
+pages that merely contain the digit string** (`callchecker.co.uk/prefix/
+0750006`, `eveandersson.com/pi/digits/1000000`), which filled the fetch
+budget and stopped S2 from running. Measured from the search cache over all
+10 rows: S2 returned brand-bearing results on every row it ran; S1 was empty
+on 5, returned 1-2 on 3 (all also in S2's list, including the `qa:5` GTIN
+page it had only "owned" by provenance order), and returned junk on 1. S1 is
+dominated by S2 and is now last: `strategy_order: [S2, S3, S4, S5, S1]`.
+`03` §4 stage 2 corrected.
+
+**Projection, to be replaced by measurement:** (1) roughly halves queries per
+row; (2) triples per-engine budget; together ~6x rows per window, i.e. 412
+rows in ~10 windows (~2.5 hours) rather than ~52. The number that matters is
+rows per window *measured from the trace of the next full run*, and until it
+exists this section is a projection — the same status the "~42 minutes"
+projection had before it was measured and found wrong.
 
 ## 6. Merging and the candidate cap
 

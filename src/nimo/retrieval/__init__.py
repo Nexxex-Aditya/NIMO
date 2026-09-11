@@ -18,9 +18,15 @@ from nimo.retrieval.canonical import (
     is_private_host,
     is_safe_candidate,
 )
-from nimo.retrieval.client import SearchError, SearxngClient, unresponsive_engines
+from nimo.retrieval.client import (
+    EnginesUnresponsive,
+    SearchError,
+    SearxngClient,
+    unresponsive_engines,
+)
 from nimo.retrieval.config import (
     CONFIG_PATH,
+    EngineMode,
     RetrievalConfig,
     RetrievalConfigError,
     load_retrieval_config,
@@ -40,6 +46,8 @@ __all__ = [
     "cache_key",
     "SearchCache",
     "EngineBreaker",
+    "EngineMode",
+    "EnginesUnresponsive",
     "CacheError",
     "ALLOWED_SCHEMES",
     "CONFIG_PATH",

@@ -1,1 +1,2 @@
 {"confidence": 1.0, "entity_id": "gtin:afb78ada8d17ea4b", "row_uids": ["qa:5"], "run_id": "qa-harvest-1", "tier": "tier2_retrieval", "written_at": "2026-09-11T07:52:30.501132+00:00"}
+{"confidence": 1.0, "entity_id": "gtin:222815733e2c3a30", "row_uids": ["qa:9"], "run_id": "smoke-rotate", "tier": "tier2_retrieval", "written_at": "2026-09-11T09:22:15.073608+00:00"}

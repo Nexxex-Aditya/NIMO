@@ -135,26 +135,26 @@ def fake_search(results: dict[str, list[SearchResult]]) -> SearchFn:
 
 
 def test_first_strategy_owns_a_shared_url() -> None:
-    """A URL found by both S1 and S5 is recorded as S1's — the stronger signal,
+    """A URL found by both S2 and S5 is recorded as S2's — the stronger signal,
     and the one worth knowing about when the candidate turns out right."""
     shared = SearchResult(url="https://boots.com/p", engine="google", rank=1, title="p")
     merged = merge_candidates(
-        [SearchQuery("S1", "a"), SearchQuery("S5", "b")],
-        fake_search({"S1": [shared], "S5": [shared]}),
+        [SearchQuery("S2", "a"), SearchQuery("S5", "b")],
+        fake_search({"S2": [shared], "S5": [shared]}),
         load_retrieval_config(),
     )
-    assert [candidate.source_query for candidate in merged] == ["S1"]
+    assert [candidate.source_query for candidate in merged] == ["S2"]
 
 
 def test_ordering_is_strategy_then_rank() -> None:
-    """A barcode-exact hit outranks a verbatim-text hit regardless of what the
+    """A barcode+brand hit outranks a verbatim-text hit regardless of what the
     engine thought its rank was."""
     merged = merge_candidates(
-        [SearchQuery("S1", "a"), SearchQuery("S5", "b")],
+        [SearchQuery("S2", "a"), SearchQuery("S5", "b")],
         fake_search(
             {
                 "S5": [SearchResult("https://a.com/1", "google", 1, None)],
-                "S1": [SearchResult("https://b.com/1", "google", 9, None)],
+                "S2": [SearchResult("https://b.com/1", "google", 9, None)],
             }
         ),
         load_retrieval_config(),
@@ -224,7 +224,10 @@ def test_merged_candidates_are_contract_instances() -> None:
 def test_shipped_config_loads_and_is_internally_consistent() -> None:
     config = load_retrieval_config()
     assert config.per_strategy_limit <= config.max_candidates
-    assert config.strategy_order == ("S1", "S2", "S3", "S4", "S5")
+    # S1 last, measured (`config/retrieval.yaml`): bare-barcode queries were
+    # empty on 5 of 10 qa rows and filled the fetch set with digit-matching
+    # junk on the one row where they returned 8; S2 dominated them.
+    assert config.strategy_order == ("S2", "S3", "S4", "S5", "S1")
     assert config.connect_timeout_s > 0 and config.read_timeout_s > 0
 
 

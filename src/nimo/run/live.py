@@ -16,7 +16,8 @@ and nowhere else:
   completed rows and would otherwise lose the merges they produced.
 - **Fetch budget is capped per row** — `03` §4 stage 2's "cap hard; more costs
   fetch budget for no gain" applied at the fetch boundary, not just the
-  candidate list.
+  candidate list. The number lives in `config/retrieval.yaml` because
+  retrieval's early exit keys off it (`specs/retrieval.md` §5a.7).
 """
 
 from dataclasses import dataclass, field
@@ -100,7 +101,6 @@ def live_stages(
     thresholds: RegistryThresholds,
     classifier: ModuleClassifier,
     writer: RegistryWriter,
-    fetch_budget: int,
     cache_counter: CacheCounter,
 ) -> Stages:
     """Compose the real stages. Everything network-backed is injected."""
@@ -113,7 +113,7 @@ def live_stages(
 
     def fetch(candidates: list[CandidateURL]) -> list[CandidateEvidence]:
         evidence: list[CandidateEvidence] = []
-        for candidate in candidates[:fetch_budget]:
+        for candidate in candidates[: retrieval_config.fetch_budget]:
             outcome = fetcher.fetch(candidate.url)
             if outcome.from_cache:
                 cache_counter.hits += 1

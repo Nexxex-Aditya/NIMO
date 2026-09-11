@@ -43,21 +43,24 @@ def merge_candidates(
     Ordering is (strategy order, rank within strategy), so a barcode-exact hit
     outranks a verbatim-text hit regardless of what the engine thought.
 
-    **Strategies stop once the cap is full** when `early_exit_on_full_cap` is
-    set. That is the single largest lever on query budget: without it, qa
-    costs 1904 queries and gets rate-limited; with it, ~412 and does not.
+    **Strategies stop once `fetch_budget` candidates exist** when `early_exit`
+    is set. Under this ordering that is not a heuristic: the first
+    `fetch_budget` entries are fixed the moment that many safe unique
+    candidates exist, so every later query is spent on candidates the runner
+    never fetches. Measured on the first 8 harvested `qa` rows: S3 and S5
+    produced 86 candidates and 0 of them were fetched
+    (`specs/retrieval.md` §5a.7).
     """
     order = {name: position for position, name in enumerate(config.strategy_order)}
     seen: dict[str, CandidateURL] = {}
     ranked: list[tuple[int, int, str]] = []
 
     for query in sorted(queries, key=lambda item: order.get(item.strategy, len(order))):
-        # Early exit: the cap is already met, so every further strategy spends
-        # a query on candidates that would be discarded anyway. Measured, one
-        # strategy against the configured engine portfolio returns 7-30 unique
-        # candidates, so this usually stops after the first — taking qa's
-        # budget from ~1904 queries to ~412 (`config/retrieval.yaml`).
-        if config.early_exit_on_full_cap and len(seen) >= config.max_candidates:
+        # Early exit: the fetched set is already fixed. Exiting at
+        # `max_candidates` (20) instead of `fetch_budget` (8) was measured to
+        # spend half of every row's queries on candidates ranked 9-20, which
+        # the runner never fetched (`config/retrieval.yaml`).
+        if config.early_exit and len(seen) >= config.fetch_budget:
             break
 
         for result in search(query, config.per_strategy_limit)[: config.per_strategy_limit]:

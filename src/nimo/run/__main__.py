@@ -43,12 +43,6 @@ REGISTRY_DIR = REPO_ROOT / "data" / "registry"
 CACHE_DIR = REPO_ROOT / "data" / "cache"
 OUT_DIR = REPO_ROOT / "data" / "out"
 
-# `03` §4 stage 2 caps candidates at 20; fetching all 20 per row is 8000 page
-# fetches for `qa`. The matcher's decisive signals (GTIN, size, count) come
-# from the page, so the trade is recall-of-fetch against crawl cost. Eight is
-# the top of what the live gate run needed to surface the right page.
-FETCH_BUDGET_PER_ROW = 8
-
 
 def main(argv: list[str]) -> int:
     sheet = "dev"
@@ -121,7 +115,6 @@ def main(argv: list[str]) -> int:
                 thresholds=thresholds,
                 classifier=classifier,
                 writer=writer,
-                fetch_budget=FETCH_BUDGET_PER_ROW,
                 cache_counter=counter,
             )
             summary = run(rows, stages, paths, run_id, cache_counter=counter)

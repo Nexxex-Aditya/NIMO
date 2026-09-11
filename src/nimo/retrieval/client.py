@@ -32,6 +32,15 @@ class SearchError(Exception):
     """The search backend could not be reached or returned something unusable."""
 
 
+class EnginesUnresponsive(SearchError):
+    """Every engine queried in one request was reported unresponsive.
+
+    Its own type so that rotation (`specs/retrieval.md` §5a.7) can move to the
+    next engine on exactly this outcome and nothing else — a transport error
+    or a malformed body is not something another engine will fix.
+    """
+
+
 @dataclass
 class SearxngClient:
     """One HTTP wrapper, per `04` §6: timeouts always set on both halves,
@@ -52,7 +61,16 @@ class SearxngClient:
     # testable without sleeping, and so nothing in this class reads the wall
     # clock inside logic (`04` §5). The runner does the same with its clock.
     clock: Callable[[], float] = now_seconds
+    # Injected for the same reason as the clock: waiting out a cooldown is
+    # logic that has to be tested without actually sleeping.
+    sleep: Callable[[float], None] = time.sleep
     _last_request: float = 0.0
+    # Rotation cursor: index into `config.engines` of the engine the next
+    # query starts on. `_cooldown_waits` counts consecutive waits for a
+    # fully-broken portfolio with no successful query in between — bounded by
+    # `max_cooldown_waits`.
+    _cursor: int = 0
+    _cooldown_waits: int = 0
 
     @classmethod
     def create(
@@ -105,30 +123,142 @@ class SearxngClient:
         viable as the primary source — a re-run costs nothing, and a run
         interrupted by a block resumes without redoing the half that worked.
 
-        **Only engines whose circuit is closed are queried.** When Brave
-        CAPTCHAs it drops out and Startpage and Bing carry the run; hammering
-        a blocked engine wastes the request and extends the block.
+        **Only engines whose circuit is closed are queried.** When one
+        CAPTCHAs it drops out and the others carry the run; hammering a
+        blocked engine wastes the request and extends the block. When *every*
+        engine is open, `wait_for_cooldown` decides between raising at once
+        and sleeping until the earliest reopens (`specs/retrieval.md` §5a.7).
+
+        **`engine_mode: rotate`** sends the query to one engine, cycling, and
+        moves to the next available engine on an unresponsive *or empty*
+        answer — an empty index on one engine says nothing about the others,
+        and it is the barcode strategies, the most valuable ones, that come
+        back empty most often.
 
         Raising rather than returning an empty list is deliberate (`04` §4):
         empty is a legitimate answer meaning "no results", and collapsing a
         network failure into it would silently degrade recall with nothing to
         find later. The P6a runner turns this into a typed `RowFailure`.
         """
-        now = self.clock()
-        engines = tuple(self.breaker.available(self.config.engines, now))
-        if not engines:
-            raise SearchError(
-                f"every engine is circuit-broken: {sorted(self.breaker.blocked_engines)}. "
-                f"'No engine answered' and 'no results exist' are different facts and only "
-                f"one is about the product, so this raises rather than returning empty. "
-                f"Wait out the {self.config.engine_cooldown_s:.0f}s cooldown, or add engines."
-            )
+        while True:
+            engines, now = self._engines_or_wait(self.clock())
+            try:
+                return self._search_once(query, engines, limit, now)
+            except EnginesUnresponsive as error:
+                # Everything asked was unresponsive. If that opened the last
+                # circuit and waiting is on, go round: `_engines_or_wait`
+                # sleeps until an engine reopens, or raises once the bound is
+                # hit. Otherwise it is this row's failure — re-asking engines
+                # the breaker still considers available would hammer them.
+                if self.config.wait_for_cooldown and not self.breaker.available(
+                    self.config.engines, self.clock()
+                ):
+                    continue
+                raise SearchError(
+                    f"every engine asked was unresponsive for {query.strategy}: {error}"
+                ) from error
 
-        if self.cache is not None:
-            cached = self.cache.get(query.text, engines, now)
+    def _search_once(
+        self, query: SearchQuery, engines: tuple[str, ...], limit: int, now: float
+    ) -> list[SearchResult]:
+        """One pass over the available engines, cache-first."""
+        if self.config.engine_mode == "portfolio":
+            cached = self._cached(query, engines, now)
             if cached is not None:
                 return cached[:limit]
+            return self._request(query, engines, limit, now)
 
+        # Rotation. Any single engine's cached answer for this query is a
+        # hit; a cached EMPTY answer rules that engine out of the live
+        # attempts without ruling out the others.
+        cached_empty: set[str] = set()
+        for engine in self.config.engines:
+            hit = self._cached(query, (engine,), now)
+            if hit:
+                return hit[:limit]
+            if hit is not None:
+                cached_empty.add(engine)
+
+        attempts = [
+            engine
+            for engine in self._rotation_order()
+            if engine in engines and engine not in cached_empty
+        ]
+        last_error: EnginesUnresponsive | None = None
+        answered = False
+        for engine in attempts:
+            try:
+                results = self._request(query, (engine,), limit, now)
+            except EnginesUnresponsive as error:
+                last_error = error
+                log.warning("searxng_rotate_next", strategy=query.strategy, unresponsive=engine)
+                continue
+            answered = True
+            if results:
+                self._cursor = (self.config.engines.index(engine) + 1) % len(self.config.engines)
+                return results
+            log.info("searxng_rotate_on_empty", strategy=query.strategy, engine=engine)
+        if last_error is not None and not answered:
+            # Live attempts were made and none of them answered — that is a
+            # failure, not an empty result (`04` §4). Typed, so `search` can
+            # decide whether to wait out the cooldown or fail the row.
+            raise EnginesUnresponsive(
+                f"every available engine was unresponsive: {last_error}"
+            ) from last_error
+        return []
+
+    def _rotation_order(self) -> list[str]:
+        """`config.engines` starting at the cursor, wrapping — so the
+        assignment is deterministic given the same history."""
+        engines = self.config.engines
+        return [engines[(self._cursor + offset) % len(engines)] for offset in range(len(engines))]
+
+    def _cached(
+        self, query: SearchQuery, engines: tuple[str, ...], now: float
+    ) -> list[SearchResult] | None:
+        if self.cache is None:
+            return None
+        return self.cache.get(query.text, engines, now)
+
+    def _engines_or_wait(self, now: float) -> tuple[tuple[str, ...], float]:
+        """The available engines, sleeping out a fully-broken portfolio when
+        configured to. Returns the (possibly advanced) clock reading too, so
+        cache expiry and breaker bookkeeping see the time after the wait."""
+        while True:
+            engines = tuple(self.breaker.available(self.config.engines, now))
+            if engines:
+                return engines, now
+            blocked = sorted(self.breaker.blocked_engines)
+            if not self.config.wait_for_cooldown:
+                raise SearchError(
+                    f"every engine is circuit-broken: {blocked}. 'No engine answered' and 'no "
+                    f"results exist' are different facts and only one is about the product, so "
+                    f"this raises rather than returning empty. Wait out the "
+                    f"{self.config.engine_cooldown_s:.0f}s cooldown, or add engines."
+                )
+            if self._cooldown_waits >= self.config.max_cooldown_waits:
+                raise SearchError(
+                    f"every engine is circuit-broken: {blocked}, and the portfolio produced no "
+                    f"successful query across {self._cooldown_waits} consecutive cooldown waits "
+                    f"(`max_cooldown_waits`). Stopping rather than waiting further: a portfolio "
+                    f"silent for that long is a run to look at, not to keep waiting on."
+                )
+            reopens = self.breaker.reopens_at(self.config.engines)
+            delay = 0.0 if reopens is None else max(0.0, reopens - now)
+            self._cooldown_waits += 1
+            log.warning(
+                "searxng_waiting_for_cooldown",
+                delay_s=round(delay, 1),
+                wait_number=self._cooldown_waits,
+                blocked=blocked,
+            )
+            self.sleep(delay)
+            now = self.clock()
+
+    def _request(
+        self, query: SearchQuery, engines: tuple[str, ...], limit: int, now: float
+    ) -> list[SearchResult]:
+        """One query against one engine set, with retries; caches the answer."""
         params = {"q": query.text, "format": "json", "engines": ",".join(engines)}
         last_error: Exception | None = None
 
@@ -188,9 +318,10 @@ class SearxngClient:
                 self.breaker.record_failure(engine, now)
             else:
                 self.breaker.record_success(engine)
+                self._cooldown_waits = 0  # something answered: the wait budget resets
 
         if degraded and degraded >= set(engines):
-            raise SearchError(
+            raise EnginesUnresponsive(
                 f"every queried engine is unresponsive: {sorted(degraded)}. Results from a "
                 f"fully CAPTCHA-blocked instance are not retrieval output and must not be "
                 f"scored. Reduce request rate (`min_interval_s`) or wait out the block."

@@ -2097,6 +2097,94 @@ fix, and why it is worth harvesting for.
 **Status:** standing — HARD-20%. Curve unfitted; abstention off; both stated.
 
 
+## 2026-09-11 — No paid search key exists; the free portfolio is re-engineered to carry a full `qa` run unattended
+**Decision:** The user confirmed no paid search key is available, which closes
+the "paid API for the submission run" option rather than deferring it. The
+free path was re-engineered on four measurements from the harvested rows'
+own artifacts, all in `src/nimo/retrieval/` and `config/retrieval.yaml`
+(`specs/retrieval.md` §5a.7): (1) early exit now fires at `fetch_budget`
+(8), not `max_candidates` (20); (2) `engine_mode: rotate` sends each query
+to one engine, cycling, with next-engine-on-empty; (3) `wait_for_cooldown`
+sleeps out a fully-broken portfolio, bounded by `max_cooldown_waits`; (4)
+S1 (bare barcode) moves from first to **last** in the strategy order, and
+`03` §4 stage 2 is corrected. `fetch_budget` moves from a constant in
+`run/__main__.py` into config (`04` §9).
+**Why, with the numbers:**
+
+**1. Half of every row's queries bought candidates that were never fetched.**
+The candidate list is ordered `(strategy order, rank)` and the runner fetches
+the first 8, so once 8 safe unique candidates exist, no later strategy can
+enter the fetched set. Measured on the 8 harvested rows: S3 and S5 ran on
+every row, produced **86 candidates, 0 fetched**. Exiting at `fetch_budget`
+is therefore exact, not a heuristic — it is the point past which a further
+query provably cannot change the outcome. What it gives up on `qa` is S3/S5
+diversity, and the unfetched S3/S5 candidates were `elle.com`, `sec.gov`,
+`pmc.ncbi.nlm.nih.gov`, `kinoteater.ee` — the retailer-abbreviation soup
+producing junk text queries, as already logged. The four UK pharmacies S3
+found for `qa:6` are the real loss, recorded rather than hidden.
+
+**2. Every request hit all three engines, so all three exhausted in
+lockstep.** The unit that gets rate-limited is the engine, per IP. One engine
+per query cuts each engine's rate by a third for the same `per_strategy_limit:
+8`. The rule that makes it safe: **an empty answer from one engine is not
+evidence about the others**, so on empty the next engine is tried, with
+empties cached per engine. Measured before deciding: bare-barcode results came
+from `google cse` 11 times in 13, so naive rotation would have handed S1 to
+DuckDuckGo on two rows in three. Per engine the worst case (every engine
+asked once) costs exactly what the portfolio cost; the common case a third.
+A cache lookup consults every engine's entry, so a warm re-run hits
+regardless of which engine answered.
+
+**3. A fully-broken portfolio failed the remaining 404 rows in 137 seconds.**
+Right for a foreground run, wrong for the only kind of run that can finish
+412 rows on free engines. The client now sleeps until the earliest engine
+reopens — within one `search` call, so a row either gets an answer or the run
+has established the portfolio is dead — bounded by `max_cooldown_waits: 4`
+consecutive waits with no successful query in between; past that every call
+raises at once. The sleep is injected like the clock (`04` §5) and the wait is
+tested with a fake clock that advances on sleep, in milliseconds.
+
+**4. S1 is dominated by S2, and the live check of (1)-(3) found it.** Two
+fresh rows: `qa:9` resolved in one query (S2 on DuckDuckGo → `romystore.co.uk`,
+JSON-LD GTIN `5060758650044` equal to the barcode → write-back — the second
+registry entity). `qa:8` went S1 → Brave → **8 pages that merely contain the
+digit string** (`callchecker.co.uk/prefix/0750006`,
+`eveandersson.com/pi/digits/1000000`), which filled the fetch budget and
+stopped S2 from running at all — a cost early exit made visible rather than
+created. From the search cache over all 10 rows: S2 returned brand-bearing
+results on every row it ran (8/8 on six rows); S1 was **empty on 5 of 10**,
+returned 1-2 on 3 — every one also in S2's list, including `allibhavan.com`,
+the `qa:5` GTIN page S1 had only "owned" through provenance order — and
+returned junk on 1. A bare number is a bad query on an engine that matches
+digits; the brand word is what disambiguates it. `03` §4 stage 2 said "S1/S2
+first"; it now says S2 first, S1 last, with the measurement.
+
+**Verification, per `04` §13:** each of the four was measured from artifacts
+or the cache before changing anything; the client behaviour is pinned by 13
+new tests (rotation cycling, next-on-empty, next-on-unresponsive, cache-hit
+on any engine, cached empties skipped, wait-then-query, the bound, budget
+reset on success, wait disabled, early exit at the fetch budget, shipped
+config); and the whole thing was run live on two rows before the strategy
+order was touched. **Projection, not yet measurement:** (1) roughly halves
+queries per row, (2) triples per-engine budget, together ~6x rows per window
+— 412 rows in ~10 windows rather than ~52. The earlier "~42 minutes"
+projection was wrong; this one is labelled a projection until the trace of a
+full run replaces it.
+**Affects:** `config/retrieval.yaml` (`fetch_budget`, `early_exit`,
+`engine_mode`, `wait_for_cooldown`, `max_cooldown_waits`, `strategy_order`),
+`src/nimo/retrieval/config.py`, `client.py` (`EnginesUnresponsive`,
+`_search_once`, `_engines_or_wait`, `_request`, injected `sleep`),
+`breaker.py` (`reopens_at`), `search.py` (exit at `fetch_budget`),
+`__init__.py`; `src/nimo/run/live.py`, `__main__.py` (constant removed);
+`tests/retrieval/test_resilience.py` (+13), `test_client.py`,
+`test_queries.py`; `specs/retrieval.md` §5a.3, new §5a.7; `03` §4 stage 2;
+`data/registry/` (second entity, `qa:9`).
+**Status:** standing — supersedes the "paid API is required for a submission
+run" conclusion in the P10 entry: no key exists, so it is not an option, and
+the free path is now built to be run unattended. Rows per window is to be
+measured from the next full run.
+
+
 ---
 
 # Open questions — resolve with organizers
@@ -2108,7 +2196,7 @@ fix, and why it is worth harvesting for.
 | Q3 | No URL ground truth exists in `dev`. How is URL selection (stage 4) scored? | High — cannot optimize what we cannot measure | open |
 | Q4 | `sample_output` shows an Amazon.in page as the answer for a `FR,GB` item. Is cross-market resolution acceptable? | Medium — determines whether market is a filter or a feature | open |
 | Q5 | `sample_output` carries `GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT`, absent from `dev`/`qa`. Required in submission? | Medium | open |
-| Q6 | Is scraping retailer sites permitted, and are there rate/robots constraints for the demo? **Now load-bearing, and the constraint is on the search side, not the retailer side.** Measured 2026-09-11: a self-hosted SearxNG was CAPTCHA-blocked by Google and DuckDuckGo after a few dozen queries from one IP. 412 rows x 3-5 strategies is 1200-2000 queries, which no free engine will serve. **Measured 2026-09-11 with the full pipeline: 8 rows per cooldown window before all three free engines block (~13 hours for 412 rows, if blocks lift on schedule). Free engines serve the 10-row demo and development; a paid search API is REQUIRED for a full `qa` submission run in a working day.** Is one acceptable? Separately, P4 already found Tesco serving a bot interstitial to a browser, so the retailer side is real too. | **High — blocks P7's gate and caps the demo** | open |
+| Q6 | Is scraping retailer sites permitted, and are there rate/robots constraints for the demo? **Now load-bearing, and the constraint is on the search side, not the retailer side.** Measured 2026-09-11: a self-hosted SearxNG was CAPTCHA-blocked by Google and DuckDuckGo after a few dozen queries from one IP. 412 rows x 3-5 strategies is 1200-2000 queries, which no free engine will serve. **Measured 2026-09-11 with the full pipeline: 8 rows per cooldown window before all three free engines block (~13 hours for 412 rows, if blocks lift on schedule). Free engines serve the 10-row demo and development; a paid search API would be required for a full `qa` run in a working day — and NO PAID KEY EXISTS (confirmed 2026-09-11), so the free portfolio was re-engineered for an unattended run instead: engine rotation, early exit at the fetch budget, wait-for-cooldown (`specs/retrieval.md` §5a.7). Rows per window is being measured from the full run.** Separately, P4 already found Tesco serving a bot interstitial to a browser, so the retailer side is real too. | **High — blocks P7's gate and caps the demo** | open |
 | Q7 | Which LLM is provided, with what context window and rate limit? Multimodal available for image evidence? | High — image comparison is an explicit requirement | **partially resolved 2026-09-10** — CIS LLM, model `hack-fest-gpt-5.6-luna`, `azure-ai-inference` SDK, api_version `2025-03-01-preview`; key in gitignored `.env`. **New constraint found by probing: the endpoint is internal-only** — it resolves to `10.249.224.116` (RFC1918) and TCP 443 times out off-network, so it needs the NIQ VPN. Context window, rate limit and multimodal support are still unstated — re-ask, and confirm connectivity on-network before P11/P12 execute. |
 | Q8 | `dev` row with module `TOOTH CLEANING - GUM/TABLETS (NATURAL TEETH)` has `GLOBAL_PACKAGING_MATERIAL = 'GLASS'`, but that module's allowed values are `['CARDBOARD', 'PAPER', 'PLASTIC']` — no `GLASS`. Confirmed organizer data error, not a parsing issue on our side. Is a corrected value available? | Low — 1 of 412 rows, but worth flagging | open |
 | Q9 | `dev.BRAND` contains a double-encoded-UTF-8 mojibake value (`'JASÃƒâ€“N'`, 3 rows, presumably `JASÖN`); several `RETAILER_DESC` rows in both `dev`/`qa` are similarly corrupted. Can corrected-encoding sheets be provided, or should we repair on load? | Medium — degrades retrieval query quality for affected rows | open |

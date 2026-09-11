@@ -600,8 +600,14 @@ Query strategies, run in order, results merged:
 | S4 | Site-restricted | `site:boots.com aquafresh whitening 100ml` | `retailer` maps to a known domain |
 | S5 | Brand + desc verbatim | `desc_clean` | fallback |
 
-- S1/S2 first — if a barcode-exact hit returns a page whose JSON-LD `gtin13`
-  equals the query barcode, that is near-decisive and short-circuits ranking.
+- S2 first, S1 **last** — a barcode-exact hit whose JSON-LD `gtin13` equals
+  the query barcode is near-decisive and short-circuits ranking, but the
+  query that finds such pages is barcode **plus brand**, not the bare
+  number. Measured 2026-09-11 over the first harvested `qa` rows: S2 found
+  every page S1 found and attached the brand; S1 was empty on half the rows
+  and, on an engine that matches digit strings, filled the fetch budget with
+  pages about phone prefixes and the digits of pi. `specs/retrieval.md`
+  §5a.7. S1 remains as the fallback for a row nothing else fills.
 - Retailer→domain map lives in `config/retailers.yaml`. **50 retailer
   strings** (`01` §9 — not 44, that was a `dev`-only count), hand-mapped. The
   same file also supplies the retailer name-cleaning table the loader (P2)

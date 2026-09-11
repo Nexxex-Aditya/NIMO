@@ -17,12 +17,17 @@ Authority: `03` §4 stage 4 Layer B, `05` §1 (untrusted content in prompts —
 injection fixture tests are DoD), `05` §3.
 
 **THE NUMBER THAT MATTERS FOR PLANNING:** the full pipeline works end to end
-(first registry write-back fired on `qa:5`), but free search yields **8 rows
-per cooldown window** before all three engines block. A 412-row qa run is
-~13 hours unattended on free engines, if blocks lift on schedule. **A paid
-search API is required for a submission run in a working day.** Free engines
-serve the 10-row demo, development, and warm cache re-runs. Q6 is now the
-blocking decision.
+(registry write-back has fired twice: `qa:5`, `qa:9`). **No paid search key
+exists** — confirmed by the user 2026-09-11 — so the free portfolio carries
+the submission run, unattended. It was re-engineered for that on measurement
+(`specs/retrieval.md` §5a.7, decision log 2026-09-11): early exit at the
+fetch budget (S3/S5 had produced 86 candidates and 0 were fetched), one
+engine per query with next-on-empty, wait-for-cooldown bounded by
+`max_cooldown_waits`, and S1 (bare barcode) moved last because S2 dominates
+it. Before that: 8 rows per cooldown window. After: a projection of ~6x,
+**not yet measured** — the trace of the full `qa` run replaces it. Run it
+with `uv run python -m nimo.run --sheet qa --live --run-id qa-harvest-2`;
+it resumes, and every registry merge is persisted as it happens.
 
 **P10 state:** `calibrated_prob` mirrors `raw_score` (tested); abstention is
 OFF (`tau_abstain: 0.0`); `data/calibration/pairs.jsonl` holds 1 pair. The
@@ -50,12 +55,12 @@ fit takes over automatically once >=30 pairs exist — the harvest is
 
 ## Verified state (re-check on resume, don't trust blindly)
 
-Last `make check`: PASS as of the P7 commit. `make` is absent on
+Last `make check`: PASS as of the free-engine budget commit (after P10). `make` is absent on
 this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (581 passed)
+  uv run pytest                          -> EXIT 0  (594 passed)
 
 ## Do NOT re-do
 
