@@ -60,6 +60,7 @@ from nimo.registry import (
     block_keys,
     entity_id,
     lookup,
+    read_entities,
     write_entities,
 )
 from nimo.retrieval import (
@@ -152,7 +153,19 @@ class RegistryWriter:
         return True
 
     def _persist(self, entity: CanonicalEntity, now: datetime) -> None:
+        """Write the entity set, merged over whatever is on disk NOW.
+
+        Two live processes can share the registry — the UI open while a
+        batch run harvests. Each holds its own in-memory set and rewrites
+        the whole file per merge, so a naive write would clobber entities
+        the other wrote since this process started. Re-reading and merging
+        first (ours win on the same id — they are newer) makes concurrent
+        writers additive. Entities are never deleted, so a union is right.
+        """
         self.entities[entity.entity_id] = entity
+        on_disk = {e.entity_id: e for e in read_entities(self.entities_path)}
+        on_disk.update(self.entities)
+        self.entities = on_disk
         write_entities(
             self.entities_path, sorted(self.entities.values(), key=lambda e: e.entity_id)
         )

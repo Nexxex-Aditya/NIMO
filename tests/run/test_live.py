@@ -93,3 +93,20 @@ def test_refresh_with_nothing_to_change_writes_nothing(tmp_path: Path) -> None:
     q = query(barcode="5014697056627").model_copy(update={"row_uid": "qa:5"})  # already a member
     assert not w.refresh(q, complete, PASTE, values("gate_only"))
     assert not (tmp_path / "audit.jsonl").exists()
+
+
+def test_a_write_merges_with_what_another_process_wrote_meanwhile(tmp_path: Path) -> None:
+    """Two live processes (the UI and a batch run) share the file. A write
+    must not clobber an entity the other wrote after this process loaded."""
+    mine = entity()
+    theirs = entity().model_copy(update={"entity_id": "gtin:theirs", "barcode": "5000000000001"})
+    w = writer(tmp_path, mine)
+    # the other process writes first
+    from nimo.registry import write_entities
+
+    write_entities(tmp_path / "entities.jsonl", [theirs])
+    q = query(barcode="5014697056627").model_copy(update={"row_uid": "qa:9"})
+    assert w.refresh(q, mine, PASTE, values("llm", GLOBAL_IF_WITH_FLUORIDE="WITH FLUORIDE"))
+    ids = sorted(e.entity_id for e in read_entities(tmp_path / "entities.jsonl"))
+    assert ids == ["gtin:theirs", "gtin:x"]  # both survive
+    assert w.entities["gtin:x"].module == PASTE  # ours is the newer version of ours
