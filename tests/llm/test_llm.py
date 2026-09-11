@@ -43,6 +43,9 @@ CONFIG = LlmConfig(
     max_output_tokens=256,
     max_tokens_param="max_tokens",
     reasoning_effort=None,
+    max_retries=3,
+    backoff_base_s=0.01,
+    backoff_max_s=0.05,
     request_timeout_s=5.0,
     max_tokens_per_run=10_000,
     max_calls_per_run=3,
@@ -91,6 +94,7 @@ def test_shipped_llm_config_is_pinned_and_omits_temperature() -> None:
     assert config.temperature is None
     assert config.max_tokens_param in ("max_tokens", "max_completion_tokens")
     assert config.reasoning_effort is None  # not sent until measured against the gateway
+    assert config.max_retries == 3  # `04` §6
     # Measured 2026-09-12: 64 tokens were consumed entirely by hidden
     # reasoning. The cap must leave room for reasoning AND the JSON.
     assert config.max_output_tokens >= 2048
@@ -199,6 +203,73 @@ def test_a_filtered_answer_raises_rather_than_returning_empty_text() -> None:
     assert isinstance(response, ChatCompletions)
     with pytest.raises(LlmError, match="content_filter"):
         read_response(response, a_call())
+
+
+# --- the adapter's transport retry (`04` §6), against a recording sleep
+
+
+def test_transient_errors_are_retried_with_jittered_backoff_then_succeed() -> None:
+    from azure.core.exceptions import ServiceResponseError
+
+    from nimo.llm.azure import retry_transient
+
+    slept: list[float] = []
+    outcomes: list[object] = [
+        ServiceResponseError("Connection aborted."),
+        ServiceResponseError("Read timed out."),
+        "answer",
+    ]
+
+    def attempt() -> object:
+        outcome = outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+    assert retry_transient(attempt, CONFIG, slept.append) == "answer"
+    assert len(slept) == 2
+    assert 0 <= slept[0] <= CONFIG.backoff_base_s  # full jitter, attempt 0
+    assert 0 <= slept[1] <= min(CONFIG.backoff_base_s * 2, CONFIG.backoff_max_s)
+
+
+def test_a_4xx_is_never_retried_and_a_5xx_is() -> None:
+    from azure.core.exceptions import HttpResponseError
+
+    from nimo.llm.azure import is_transient, retry_transient
+
+    bad_request = HttpResponseError(message="temperature does not support 0.0")
+    bad_request.status_code = 400
+    calls = 0
+
+    def attempt() -> object:
+        nonlocal calls
+        calls += 1
+        raise bad_request
+
+    with pytest.raises(HttpResponseError):
+        retry_transient(attempt, CONFIG, lambda seconds: None)
+    assert calls == 1 and not is_transient(bad_request)
+
+    gateway = HttpResponseError(message="bad gateway")
+    gateway.status_code = 502
+    assert is_transient(gateway)
+
+
+def test_retries_are_bounded_and_the_last_error_propagates() -> None:
+    from azure.core.exceptions import ServiceRequestTimeoutError
+
+    from nimo.llm.azure import retry_transient
+
+    calls = 0
+
+    def attempt() -> object:
+        nonlocal calls
+        calls += 1
+        raise ServiceRequestTimeoutError(f"timeout {calls}")
+
+    with pytest.raises(ServiceRequestTimeoutError, match="timeout 4"):
+        retry_transient(attempt, CONFIG, lambda seconds: None)
+    assert calls == CONFIG.max_retries + 1
 
 
 def test_reasoning_tokens_round_trip_through_the_cache(tmp_path: Path) -> None:

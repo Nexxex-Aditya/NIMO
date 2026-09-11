@@ -16,9 +16,12 @@ notebook's explicit header redundant — kept anyway, per the note in
 `config/models.yaml`, until a live call proves the simpler form works.
 """
 
-from collections.abc import Mapping
+import random
+import time
+from collections.abc import Callable, Mapping
 from typing import Any
 
+import structlog
 from azure.ai.inference import ChatCompletionsClient
 from azure.ai.inference.models import (
     ChatCompletions,
@@ -27,17 +30,33 @@ from azure.ai.inference.models import (
     UserMessage,
 )
 from azure.core.credentials import AzureKeyCredential
+from azure.core.exceptions import (
+    AzureError,
+    HttpResponseError,
+    ServiceRequestError,
+    ServiceResponseError,
+)
 
 from nimo.llm.client import CompleteFn, LlmCall, LlmError, LlmResponse, LlmTruncated
 from nimo.llm.config import LlmConfig
 
+log = structlog.get_logger(__name__)
 
-def azure_complete_fn(config: LlmConfig, api_key: str) -> CompleteFn:
+# `04` §6: retry on 5xx and transport failures only. A 4xx fails identically
+# every time (the temperature-0 400 measured 2026-09-12 is the canonical case).
+_SERVER_ERROR_FLOOR = 500
+
+
+def azure_complete_fn(
+    config: LlmConfig, api_key: str, *, sleep: Callable[[float], None] = time.sleep
+) -> CompleteFn:
     """Build the `CompleteFn` for the pinned CIS model.
 
     The key is used here and nowhere else: never logged, never cached, never
     in a prompt (`05` §3). `05` §2's SSRF guard is deliberately NOT applied
-    to this configured, trusted endpoint (decision log 2026-09-10).
+    to this configured, trusted endpoint (decision log 2026-09-10). `sleep`
+    is injected like the other clients' clocks (`04` §5) so the retry
+    schedule is testable without waiting.
     """
     if not api_key.strip():
         raise LlmError("CIS_LLM_API_KEY is empty — set it in `.env` (`04` §9)")
@@ -68,17 +87,57 @@ def azure_complete_fn(config: LlmConfig, api_key: str) -> CompleteFn:
             model_extras["reasoning_effort"] = config.reasoning_effort
         if model_extras:
             extras["model_extras"] = model_extras
-        response = client.complete(
-            messages=[SystemMessage(call.system), UserMessage(call.user)],
-            model=call.model,
-            response_format="json_object",
-            **extras,
-        )
-        if not isinstance(response, ChatCompletions):
-            raise LlmError("streaming response received; the client never asks for one")
-        return read_response(response, call)
+
+        def once() -> LlmResponse:
+            response = client.complete(
+                messages=[SystemMessage(call.system), UserMessage(call.user)],
+                model=call.model,
+                response_format="json_object",
+                **extras,
+            )
+            if not isinstance(response, ChatCompletions):
+                raise LlmError("streaming response received; the client never asks for one")
+            return read_response(response, call)
+
+        return retry_transient(once, config, sleep)
 
     return complete
+
+
+def is_transient(error: AzureError) -> bool:
+    """`04` §6's retry predicate: transport failures (connection refused or
+    aborted, request/response timeouts) and 5xx. Never a 4xx."""
+    if isinstance(error, ServiceRequestError | ServiceResponseError):
+        return True
+    if isinstance(error, HttpResponseError):
+        return error.status_code is not None and error.status_code >= _SERVER_ERROR_FLOOR
+    return False
+
+
+def retry_transient[T](
+    attempt: Callable[[], T], config: LlmConfig, sleep: Callable[[float], None]
+) -> T:
+    """Run `attempt` up to `1 + max_retries` times, sleeping an exponential
+    full-jitter backoff between transient failures; anything else, and the
+    last transient failure, propagate unchanged. Pure apart from `sleep`, so
+    the schedule is tested against a recording fake (`04` §6)."""
+    for tries in range(config.max_retries + 1):
+        try:
+            return attempt()
+        except AzureError as error:
+            if not is_transient(error) or tries == config.max_retries:
+                raise
+            ceiling = min(config.backoff_base_s * (2**tries), config.backoff_max_s)
+            delay = random.uniform(0, ceiling)  # noqa: S311 — backoff jitter, not cryptography
+            log.warning(
+                "llm_retry",
+                attempt=tries + 1,
+                of=config.max_retries,
+                error=f"{type(error).__name__}: {str(error)[:120]}",
+                sleep_s=round(delay, 2),
+            )
+            sleep(delay)
+    raise AssertionError("unreachable: the loop returns or raises")  # pragma: no cover
 
 
 def read_response(response: ChatCompletions, call: LlmCall) -> LlmResponse:

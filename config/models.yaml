@@ -65,6 +65,15 @@ llm_max_tokens_param: max_tokens      # max_tokens | max_completion_tokens
 # against this gateway; a 400 naming the field means it is unsupported.
 llm_reasoning_effort: null            # null | minimal | low | medium | high
 llm_request_timeout_s: 60
+# `04` §6: max 3 retries, exponential backoff with full jitter, on transport
+# errors (connection refused/aborted, timeouts) and 5xx ONLY — never a 4xx,
+# which fails identically every time. MEASURED 2026-09-12: 3 of 412 office
+# rows failed on one read timeout and two "remote end closed connection"
+# with no retry in place; a re-run recovered them. Budget note: a retry is
+# one more HTTP request inside ONE counted call; tokens count on success.
+llm_max_retries: 3
+llm_backoff_base_s: 1.0
+llm_backoff_max_s: 15.0
 
 # Hard per-run budget — `05` §3. On breach the runner ABORTS with a clear
 # failure rather than throttling on: an overrun usually means pathological

@@ -40,6 +40,9 @@ class LlmConfig:
     max_tokens_param: Literal["max_tokens", "max_completion_tokens"]
     reasoning_effort: ReasoningEffort | None  # None == not sent
     request_timeout_s: float
+    max_retries: int  # `04` §6 — transport errors and 5xx only
+    backoff_base_s: float
+    backoff_max_s: float
     max_tokens_per_run: int
     max_calls_per_run: int
 
@@ -85,6 +88,13 @@ def _positive_int(data: dict[str, object], key: str, path: Path) -> int:
     return value
 
 
+def _non_negative_int(data: dict[str, object], key: str, path: Path) -> int:
+    value = data.get(key)
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise LlmConfigError(f"{path}: `{key}` must be a non-negative integer; got {value!r}.")
+    return value
+
+
 def _number(data: dict[str, object], key: str, path: Path) -> float:
     value = data.get(key)
     if isinstance(value, bool) or not isinstance(value, int | float):
@@ -113,6 +123,9 @@ def load_llm_config(path: Path = CONFIG_PATH) -> LlmConfig:
         max_tokens_param=_max_tokens_param(data, path),
         reasoning_effort=_reasoning_effort(data, path),
         request_timeout_s=_number(data, "llm_request_timeout_s", path),
+        max_retries=_non_negative_int(data, "llm_max_retries", path),
+        backoff_base_s=_number(data, "llm_backoff_base_s", path),
+        backoff_max_s=_number(data, "llm_backoff_max_s", path),
         max_tokens_per_run=_positive_int(data, "llm_max_tokens_per_run", path),
         max_calls_per_run=_positive_int(data, "llm_max_calls_per_run", path),
     )
@@ -129,4 +142,9 @@ def load_llm_config(path: Path = CONFIG_PATH) -> LlmConfig:
         )
     if config.request_timeout_s <= 0:
         raise LlmConfigError(f"{path}: `llm_request_timeout_s` must be positive (`04` §6).")
+    if config.backoff_base_s <= 0 or config.backoff_max_s < config.backoff_base_s:
+        raise LlmConfigError(
+            f"{path}: `llm_backoff_base_s` must be positive and `llm_backoff_max_s` at least "
+            f"as large (`04` §6)."
+        )
     return config
