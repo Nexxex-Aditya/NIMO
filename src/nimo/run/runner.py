@@ -334,6 +334,11 @@ def _trace_record(artifacts: RowArtifacts, run_id: str, config_fingerprint: str)
         "selected_url": artifacts.selection.url,
         "selected_confidence": artifacts.selection.confidence,
         "selected_runner_up_gap": artifacts.selection.runner_up_gap,
+        "selected_calibrated_prob": (
+            artifacts.selection.features.calibrated_prob
+            if artifacts.selection.features is not None
+            else None
+        ),
         "selected_gtin_exact": (
             artifacts.selection.features.barcode_exact
             if artifacts.selection.features is not None

@@ -35,10 +35,11 @@ it. Before that: 8 rows per cooldown window. After: a projection of ~6x,
 with `uv run python -m nimo.run --sheet qa --live --run-id qa-harvest-2`;
 it resumes, and every registry merge is persisted as it happens.
 
-**P10 state:** `calibrated_prob` mirrors `raw_score` (tested); abstention is
-OFF (`tau_abstain: 0.0`); `data/calibration/pairs.jsonl` holds 1 pair. The
-fit takes over automatically once >=30 pairs exist — the harvest is
-`harvest_pairs` over the runner's `fetch` artifacts, offline, reproducible.
+**P10 state:** a curve IS fitted and committed (`data/calibration/curve.json`,
+interim: 93 pairs, ECE 0.051) and `--live` loads it, so `calibrated_prob`
+follows it. Abstention is OFF (`tau_abstain: 0.0`, wired, `[PROVISIONAL —
+Q3]`). **Refit after the full qa harvest:** `uv run python -m nimo.calibrate`
+(offline, reproducible), then commit `data/calibration/`.
 
 ## Carried-forward work, explicitly not done
 
@@ -66,7 +67,7 @@ this machine; ran its four commands directly per `04` §11:
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (717 passed)
+  uv run pytest                          -> EXIT 0  (723 passed)
 
 ## Do NOT re-do
 
@@ -122,7 +123,8 @@ this machine; ran its four commands directly per `04` §11:
   by inventing barcodes.
 - **P10: `calibrated_prob` mirrors `raw_score` WITHOUT a curve and follows
   the curve WITH one — both states tested.** `fit_isotonic` refuses fewer than
-  30 pairs; don't lower that to make a curve appear.
+  30 pairs; don't lower that to make a curve appear. The curve is loaded from
+  `data/calibration/curve.json` by `run/__main__.py`; a GTIN accept bypasses it.
 - **P10: the calibration instrument is the GTIN rule on qa, not the gold
   set.** The score fed to the fit is the weighted score BEFORE hard rules, so
   the oracle cannot leak into the number it labels.

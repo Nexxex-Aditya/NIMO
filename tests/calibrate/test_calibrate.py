@@ -138,3 +138,50 @@ def test_report_states_n_bias_and_reliability() -> None:
     # precision is non-decreasing as tau rises for a monotone curve
     precisions = [a.precision for a in report.abstention if a.selected]
     assert precisions == sorted(precisions)
+
+
+# --- persistence and config (`specs/calibrate.md` §5) --------------------------
+
+
+def test_curve_round_trips_through_disk(tmp_path: Path) -> None:
+    from nimo.calibrate import read_curve, write_curve
+
+    curve = fit_isotonic([0.1, 0.4, 0.5, 0.9], [False, True, False, True], min_pairs=4)
+    path = tmp_path / "curve.json"
+    write_curve(path, curve, source="test")
+    assert read_curve(path) == curve
+    assert '"source": "test"' in path.read_text(encoding="utf-8")
+
+
+def test_a_missing_curve_is_none_not_an_error(tmp_path: Path) -> None:
+    from nimo.calibrate import read_curve
+
+    assert read_curve(tmp_path / "none.json") is None
+
+
+def test_a_malformed_or_non_monotone_curve_raises(tmp_path: Path) -> None:
+    from nimo.calibrate import read_curve
+
+    path = tmp_path / "curve.json"
+    path.write_text("{not json", encoding="utf-8")
+    with pytest.raises(CalibrationError, match="not a readable curve"):
+        read_curve(path)
+    path.write_text(
+        '{"thresholds": [0.1, 0.5], "values": [0.9, 0.2], "n_pairs": 2, "n_positive": 1}',
+        encoding="utf-8",
+    )
+    with pytest.raises(CalibrationError, match="monotone"):
+        read_curve(path)
+
+
+def test_shipped_calibration_config_and_committed_curve() -> None:
+    """The committed curve (`data/calibration/curve.json`) loads, is monotone,
+    and was fitted on at least the configured minimum. Abstention is OFF
+    until Q3 resolves."""
+    from nimo.calibrate import CURVE_PATH, load_calibration_config, read_curve
+
+    config = load_calibration_config()
+    assert config.min_labelled_pairs == 30 and config.tau_abstain == 0.0
+    curve = read_curve(CURVE_PATH)
+    assert curve is not None and curve.n_pairs >= config.min_labelled_pairs
+    assert curve.predict(0.0) <= curve.predict(0.5) <= curve.predict(1.0)

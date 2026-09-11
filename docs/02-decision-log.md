@@ -2487,6 +2487,61 @@ the way out (`05` §5).
 **Status:** standing — gate met.
 
 
+## 2026-09-11 — P10 closes: a real calibration curve from the harvest, and the curve is actually wired in
+**Decision:** `uv run python -m nimo.calibrate` harvests pairs from the
+runner's `fetch` artifacts, fits, writes `data/calibration/pairs.jsonl` and
+`curve.json` (committed), and prints the reliability report. `--live` loads
+the curve and threads it into `select`; `tau_abstain` is read and honoured
+(still `0.0`, OFF, `[PROVISIONAL — Q3]`); the trace carries
+`selected_calibrated_prob`; the reasoning quotes a calibrated probability
+only when a curve applied. Interim fit on the harvest so far: **93 pairs
+from 195 rows, ECE 0.051.** Refit on all 412 when the harvest completes.
+
+**Why, and what was found:**
+
+**1. The machinery was built but not wired — found by trying to use it.**
+P10's entry said "the fit takes over automatically once ≥30 pairs exist".
+It could not: nothing read `min_labelled_pairs` or `tau_abstain`, nothing
+persisted a curve, and `live.py` never passed one to `select`. Tests passed
+because each built its curve in memory and called `score_candidate`
+directly — the "tests verify the function, not the wiring" shape this
+project has logged three times. Closed by a store (`write_curve`,
+`read_curve` — a malformed or non-monotone file raises rather than quietly
+loading as uncalibrated), a config loader, the CLI, and the thread through
+`live.py`, with a test that the committed curve loads and is monotone.
+
+**2. The yield changed the arithmetic.** With S1 first the harvest yielded 1
+pair per 8 rows (one GTIN-publishing page in 64 fetched). With S2 first —
+barcode + brand finds the retailers that publish JSON-LD — it is 93 pairs
+from 195 rows. The 30-pair floor that looked like a 240-row project is now
+reached at ~60 rows.
+
+**3. What the curve says.** Raw text score ≥ 0.60 → 97.6% correct (n=50 in
+the top bin, observed 0.96); 0.55 → 0.89; 0.455 → 0.64; **0.275-0.455 →
+0.45** (n=20, observed 0.45 — a coin flip); below 0.275 → 0. ECE 0.051 over
+five populated bins. The single P10 data point (`qa:5` at 0.40, correct)
+sits inside the coin-flip band, as it should. The abstention table makes Q3
+concrete: tau 0.5 trades 23 of 92 selections for precision 0.78 → 0.91; tau
+0.9 trades 42 for 0.96. Whether that trade is worth making depends entirely
+on how a wrong URL is scored against a blank one, which is Q3, so the
+default stays OFF.
+
+**4. Selection bias, stated again because the report states it every
+time.** Pairs come only from pages that publish a GTIN — the structured-
+data-rich retailers, not Amazon or bot walls. The curve is fitted on the
+well-behaved end of the web and applied to all of it.
+
+**Affects:** new `src/nimo/calibrate/store.py`, `__main__.py`;
+`src/nimo/calibrate/__init__.py`; `src/nimo/match/score.py` (`tau_abstain`
+in `select`); `src/nimo/run/live.py` (`curve`, `tau_abstain`),
+`__main__.py` (loads the curve), `runner.py` (trace field);
+`src/nimo/reason/compose.py` (calibrated probability clause);
+`data/calibration/pairs.jsonl` (93), new `data/calibration/curve.json`;
+`tests/calibrate/` (+4), `tests/match/` (+1), `tests/reason/` (+1).
+`04-build-standards.md` §1 P10 row.
+**Status:** standing — HARD-20%. Curve fitted (interim); abstention OFF.
+
+
 ---
 
 # Open questions — resolve with organizers

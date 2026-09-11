@@ -31,6 +31,7 @@ retrying it 412 times would print the same error 412 times.
 import sys
 from pathlib import Path
 
+from nimo.calibrate import CURVE_PATH, load_calibration_config, read_curve
 from nimo.characteristics import (
     CharacteristicExtractor,
     guideline_index,
@@ -139,6 +140,19 @@ def main(argv: list[str]) -> int:
         )
         adjudicator: Adjudicator | None = None
         extractor: CharacteristicExtractor | None = None
+        calibration = load_calibration_config()
+        curve = read_curve(CURVE_PATH)
+        if curve is None:
+            print(
+                "calibration: NO CURVE at data/calibration/curve.json — calibrated_prob mirrors "
+                "raw_score; run `uv run python -m nimo.calibrate` after a harvest."
+            )
+        else:
+            print(
+                f"calibration: curve loaded ({curve.n_pairs} pairs, {curve.n_positive} positive); "
+                f"tau_abstain={calibration.tau_abstain}"
+                + (" (OFF)" if calibration.tau_abstain == 0.0 else "")
+            )
         if adjudicate or characteristics:
             # Imported here and only here: the SDK is the network, and no other
             # path needs it (`specs/adjudicate.md` §6).
@@ -182,6 +196,8 @@ def main(argv: list[str]) -> int:
                 reason_config=load_reason_config(),
                 adjudicator=adjudicator,
                 extractor=extractor,
+                curve=curve,
+                tau_abstain=calibration.tau_abstain,
             )
             summary = run(
                 rows,

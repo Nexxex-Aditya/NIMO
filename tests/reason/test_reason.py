@@ -333,3 +333,21 @@ def test_config_rejects_a_cap_too_small_to_say_anything(tmp_path: Path) -> None:
     )
     with pytest.raises(ReasonConfigError, match=">= 100"):
         load_reason_config(path)
+
+
+def test_calibrated_probability_is_quoted_only_when_a_curve_applied() -> None:
+    """Without a curve the two numbers are equal by construction and
+    "probability" would be an invented word (`specs/reason.md` §3)."""
+    from nimo.calibrate import fit_isotonic
+
+    subject = query()
+    pages = [page(url="https://boots.com/a", title="Aquafresh Whitening Pump Toothpaste 100ml")]
+    plain, _ = select(subject, pages, load_match_config())
+    assert (
+        "probability"
+        not in compose(subject, MISS, plain, prediction(), values(), pages, CONFIG).text
+    )
+    curve = fit_isotonic([0.1, 0.2, 0.8, 0.9], [False, False, True, True], min_pairs=4)
+    calibrated, _ = select(subject, pages, load_match_config(), None, curve)
+    text = compose(subject, MISS, calibrated, prediction(), values(), pages, CONFIG).text
+    assert "(calibrated probability " in text

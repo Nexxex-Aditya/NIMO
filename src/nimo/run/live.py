@@ -26,6 +26,7 @@ from pathlib import Path
 
 import structlog
 
+from nimo.calibrate import IsotonicCurve
 from nimo.characteristics import CharacteristicExtractor, gate_only
 from nimo.classify.model import ModuleClassifier
 from nimo.contracts import (
@@ -135,6 +136,8 @@ def live_stages(
     reason_config: ReasonConfig,
     adjudicator: Adjudicator | None = None,
     extractor: CharacteristicExtractor | None = None,
+    curve: IsotonicCurve | None = None,
+    tau_abstain: float = 0.0,
 ) -> Stages:
     """Compose the real stages. Everything network-backed is injected.
 
@@ -176,7 +179,12 @@ def live_stages(
         query: ProductQuery, evidence: list[CandidateEvidence]
     ) -> tuple[Selection, ScoredCandidate | None]:
         selection, ranked = select(
-            query, evidence, match_config, retailer_domain(query.retailer_raw, retailers_path)
+            query,
+            evidence,
+            match_config,
+            retailer_domain(query.retailer_raw, retailers_path),
+            curve,
+            tau_abstain,
         )
         usable = [item for item in ranked if not item.rejected]
         if adjudicator is not None and should_adjudicate(selection, ranked, match_config):

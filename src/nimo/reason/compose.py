@@ -145,6 +145,11 @@ def identity_sentence(
         if selection.runner_up_gap > 0:
             text += f", ahead of the runner-up by {selection.runner_up_gap:.2f}"
             claims.append("selection.runner_up_gap")
+        if features is not None and features.calibrated_prob != features.raw_score:
+            # Only when a fitted curve applied: without one the two are equal
+            # by construction and "probability" would be an invented word.
+            text += f" (calibrated probability {features.calibrated_prob:.2f})"
+            claims.append("selection.calibrated_prob")
         text += "."
         if features is not None:
             demotions: list[str] = []

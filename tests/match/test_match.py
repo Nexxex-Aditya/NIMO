@@ -504,3 +504,25 @@ def test_hard_rules_use_no_numeric_literals() -> None:
     source = inspect.getsource(module.apply_hard_rules) + inspect.getsource(module.weighted_score)
     for literal in ("0.5", "0.6", "0.4", "0.35", "0.3", "0.15"):
         assert literal not in source, f"{literal} is hard-coded; it belongs in config/match.yaml"
+
+
+# --- abstention through `select` (`specs/calibrate.md` §4, [PROVISIONAL — Q3]) -------
+
+
+def test_abstention_needs_a_curve_and_a_positive_tau() -> None:
+    """Without a curve `calibrated_prob` mirrors `raw_score`, so a tau would
+    threshold noise: it is ignored. With a curve and tau > 0, a best
+    candidate below tau abstains (`url is None`) and the ranking survives."""
+    from nimo.calibrate import fit_isotonic
+
+    subject = query()
+    weak = page(url="https://a.test/p", title="Colgate 75ml")  # low text score
+    curve = fit_isotonic([0.1, 0.2, 0.8, 0.9], [False, False, True, True], min_pairs=4)
+
+    ignored, _ = select(subject, [weak], CONFIG, None, None, 0.9)
+    assert ignored.url == "https://a.test/p"  # no curve: tau ignored
+    off, _ = select(subject, [weak], CONFIG, None, curve, 0.0)
+    assert off.url == "https://a.test/p"  # tau 0 == OFF
+    abstained, ranked = select(subject, [weak], CONFIG, None, curve, 0.9)
+    assert abstained.url is None and len(ranked) == 1
+    assert ranked[0].features.calibrated_prob < 0.9

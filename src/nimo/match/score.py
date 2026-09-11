@@ -172,19 +172,28 @@ def select(
     config: MatchConfig,
     retailer_domain: str | None = None,
     curve: "IsotonicCurve | None" = None,
+    tau_abstain: float = 0.0,
 ) -> tuple[Selection, list[ScoredCandidate]]:
     """The chosen candidate and the full ranking behind it.
 
     Returns the ranking too, because `03` §1 makes per-feature transparency a
     design goal and `03` §4 stage 8 writes it to `trace.jsonl`.
 
-    **No abstention at P9.** `03` §4 stage 4 gates abstention on
-    `calibrated_prob < τ`, and there is no calibration yet (§5 of
-    `specs/match.md`), so abstaining here would be thresholding a number that
-    does not mean what the threshold assumes.
+    **Abstention only with a curve.** `03` §4 stage 4 gates it on
+    `calibrated_prob < τ`; without a curve `calibrated_prob` mirrors the raw
+    score and thresholding it would be thresholding a number that does not
+    mean what the threshold assumes — so `tau_abstain` is ignored unless a
+    curve is supplied, and `0.0` is OFF either way (`[PROVISIONAL — Q3]`).
     """
     ranked = rank_candidates(query, candidates, config, retailer_domain, curve)
     usable = [item for item in ranked if not item.rejected]
+    if (
+        usable
+        and curve is not None
+        and tau_abstain > 0.0
+        and usable[0].features.calibrated_prob < tau_abstain
+    ):
+        usable = []  # abstain: `url is None` (`03` §3), the ranking is still returned
 
     if not usable:
         return (
