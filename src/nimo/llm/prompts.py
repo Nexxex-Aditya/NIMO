@@ -48,9 +48,7 @@ def load_prompt(name: str, directory: Path = PROMPTS_DIR) -> PromptTemplate:
     # cache key, which includes the rendered prompt) that differs between
     # Windows and Linux checkouts of the same file is version skew invented
     # by the tooling (`05` §5).
-    text = path.read_bytes().decode("utf-8").replace("
-", "
-")
+    text = path.read_bytes().decode("utf-8").replace("\r\n", "\n")
     raw = text.encode("utf-8")
     if _SECTION_BREAK in text:
         system, user = text.split(_SECTION_BREAK, 1)

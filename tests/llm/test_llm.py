@@ -121,14 +121,8 @@ def test_shipped_prompts_load_with_a_stable_hash() -> None:
 
 def test_prompt_hash_is_independent_of_line_endings(tmp_path: Path) -> None:
     """git autocrlf rewrites the file per machine; the hash must not follow."""
-    (tmp_path / "p.md").write_bytes(b"sys
----
-user {{x}}
-")
-    (tmp_path / "q.md").write_bytes(b"sys
----
-user {{x}}
-")
+    (tmp_path / "p.md").write_bytes(b"sys\n---\nuser {{x}}\n")
+    (tmp_path / "q.md").write_bytes(b"sys\r\n---\r\nuser {{x}}\r\n")
     lf, crlf = load_prompt("p", tmp_path), load_prompt("q", tmp_path)
     assert lf.prompt_hash == crlf.prompt_hash
     assert lf.system == crlf.system and lf.user_template == crlf.user_template
