@@ -93,7 +93,7 @@ class Fetcher:
 
     # --- politeness ---------------------------------------------------------
 
-    def _throttle(self, url: str) -> None:
+    def throttle(self, url: str) -> None:
         """Space requests per HOST, not globally. A global limiter would make
         a crawl across twenty domains twenty times slower than politeness to
         any one of them requires."""
@@ -201,7 +201,7 @@ class Fetcher:
         """One request, with retries. `None` means "this was a redirect"."""
         last_detail = ""
         for attempt in range(self.config.max_retries + 1):
-            self._throttle(url)
+            self.throttle(url)
             try:
                 with self.client.stream("GET", url) as response:
                     if response.status_code in _REDIRECT_STATUS:

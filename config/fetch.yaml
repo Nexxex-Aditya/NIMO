@@ -66,3 +66,11 @@ cache_ttl_days: 30
 # every run is pure rudeness for an answer we already have — but a block may
 # lift, so this expires sooner than a successful page.
 failure_cache_ttl_hours: 12
+
+# --- Pack shots (`03` §4 stage 6 step 5, `nimo.fetch.images`) -------------
+# Fetched through the same client, guard and pacing as pages, cached under
+# data/cache/images/ on the page TTLs. Kept as bytes and sent to the model
+# as a base64 data URL (`config/models.yaml` `llm_image_detail`). A retail
+# pack shot is 50-500 KB; the cap refuses a hero banner or a video poster.
+image_max_bytes: 2000000
+image_types: [image/jpeg, image/png, image/webp, image/gif]

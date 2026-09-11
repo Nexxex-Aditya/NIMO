@@ -33,6 +33,8 @@ class FetchConfig:
     cache_enabled: bool
     cache_ttl_days: float
     failure_cache_ttl_hours: float
+    image_max_bytes: int  # pack shots (`nimo.fetch.images`); streamed cap, like pages
+    image_types: frozenset[str]  # media types accepted as a pack shot
 
 
 def _num(data: dict[str, object], key: str, path: Path) -> float:
@@ -40,6 +42,19 @@ def _num(data: dict[str, object], key: str, path: Path) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
         raise FetchConfigError(f"{path}: `{key}` must be a positive number; got {value!r}.")
     return float(value)
+
+
+def _image_types(data: dict[str, object], path: Path) -> frozenset[str]:
+    value = data.get("image_types")
+    if (
+        not isinstance(value, list)
+        or not value
+        or not all(isinstance(v, str) and v.startswith("image/") for v in value)
+    ):
+        raise FetchConfigError(
+            f"{path}: `image_types` must be a non-empty list of `image/...` media types."
+        )
+    return frozenset(v.lower() for v in value)
 
 
 def _int(data: dict[str, object], key: str, path: Path) -> int:
@@ -87,6 +102,8 @@ def load_fetch_config(path: Path = CONFIG_PATH) -> FetchConfig:
         cache_enabled=_bool(data, "cache_enabled", path),
         cache_ttl_days=_num(data, "cache_ttl_days", path),
         failure_cache_ttl_hours=_num(data, "failure_cache_ttl_hours", path),
+        image_max_bytes=_int(data, "image_max_bytes", path),
+        image_types=_image_types(data, path),
     )
     if "nimo" not in config.user_agent.lower():
         raise FetchConfigError(

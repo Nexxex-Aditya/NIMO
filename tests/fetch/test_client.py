@@ -40,6 +40,8 @@ CONFIG = FetchConfig(
     cache_enabled=False,
     cache_ttl_days=7.0,
     failure_cache_ttl_hours=12.0,
+    image_max_bytes=10_000,
+    image_types=frozenset({"image/jpeg", "image/png"}),
 )
 
 PAGE = "<html><head><title>Aquafresh 100ml</title></head><body>product</body></html>"

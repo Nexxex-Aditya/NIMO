@@ -20,6 +20,15 @@ from nimo.fetch.guard import (
     assert_safe_url,
     is_forbidden_address,
 )
+from nimo.fetch.images import (
+    ImageCache,
+    ImageCacheError,
+    ImageOutcome,
+    default_image_cache,
+    fetch_image,
+    image_key,
+    resolve_image_url,
+)
 from nimo.fetch.robots import RobotsCache
 
 __all__ = [
@@ -30,6 +39,13 @@ __all__ = [
     "FetchConfigError",
     "FetchOutcome",
     "Fetcher",
+    "ImageCache",
+    "ImageCacheError",
+    "ImageOutcome",
+    "default_image_cache",
+    "fetch_image",
+    "image_key",
+    "resolve_image_url",
     "PageCache",
     "PageCacheError",
     "RobotsCache",
