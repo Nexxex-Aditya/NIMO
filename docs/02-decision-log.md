@@ -2645,6 +2645,58 @@ conclusion from the P10 entry is withdrawn. Numbers recorded in `04` §1
 exists…" and the "paid API required" conclusion in the P10 entry.
 
 
+## 2026-09-11 — Directory pages demoted, retailer over directory among GTIN-confirmed pages, and the registry rebuilt
+**Decision:** Barcode directories and price aggregators (`config/match.yaml`
+`directory_domains`) and three more listing shapes (`_nkw=`, `/bn_`,
+`/collections/`) are negative flags — demoted through the same machinery as
+`refill`, never rejected. Among candidates with equal scores, a page that is
+*about* the product (directory, listing) ranks below a page that is *of* it,
+before the URL tie-break. The registry was rebuilt from the cached evidence
+under this ranking: entities file removed, audit log kept (append-only,
+`05` §4), full `qa` pass from cache, write-backs recreated.
+**Why, with the numbers:**
+
+**1. 70 of 412 `qa` selections (17%) were directory or aggregator pages** —
+`grocefully.com` 39, `buycott.com` 24, `prodlookup.co.uk` 7 — plus eBay shop
+searches and Shopify collection listings the URL patterns missed. These
+pages publish the GTIN, which is why the matcher likes them and why they
+remain valid calibration evidence; but the brief asks for the product's
+digital representation across "ecommerce sites, retailer catalogs,
+marketplaces and manufacturer pages", and a barcode index is none of those.
+Demotion rather than rejection: when no retailer page was fetched the
+directory page still wins, and the reasoning says it was demoted.
+
+**2. Under the GTIN hard rule, a directory page and the retailer page beside
+it both score exactly 1.0, and the tie fell to alphabetical URL.**
+`buycott.com` sorts before `colgate.com`. The fix is a secondary sort key,
+not a change to the hard rule: identifier first, page type second, URL
+third. A GTIN-confirmed directory page still beats a retailer page with no
+GTIN — a confirmed identity outranks a 72%-likely one.
+
+**3. Measured offline before running anything**: re-scoring the 301 non-hit
+rows from their artifacts moved 32 selections, every one toward a retailer
+or manufacturer — `prodlookup` → `asda.com` (7), `buycott` → `colgate.com`,
+`tesco.com`, `superdrug`, `morrisons`; eBay listings → `fuzzybrush.com`,
+`haleonhealthpartner.com`. The rescoring itself surfaced one more directory
+(`cosmos.bluesoft.com.br`), added.
+
+**4. The registry had memorised the old ranking.** 111 entities were written
+during the harvest with directory pages as `resolved_url` on roughly half
+of them, and a Tier 0 hit carries `resolved_url` without re-ranking. The
+entities file is derived state; the audit log is the record. Rebuilding
+from the same cached evidence under the current code is "re-run the
+pipeline", and every recreated write is audit-logged behind the harvest's
+records. The pre-rebuild entities were kept outside the repo for comparison.
+
+**Affects:** `config/match.yaml` (`directory_domains`, three
+`listing_url_patterns`), `src/nimo/match/config.py`, `features.py`
+(`directory` flag), `score.py` (`_is_about_not_of` sort key),
+`tests/match/test_match.py` (+4), `src/nimo/demo/__main__.py` (summary
+counts registry hits as identity-confirmed). `data/registry/entities.jsonl`
+rebuilt; `audit.jsonl` appended.
+**Status:** standing — HARD-20% (scoring). The hard rule is unchanged.
+
+
 ---
 
 # Open questions — resolve with organizers
