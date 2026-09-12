@@ -568,6 +568,7 @@ def test_directory_match_is_by_host_suffix_not_substring() -> None:
         "https://ebay.co.uk/shop/poligrip?_nkw=poligrip",
         "https://ebay.com/b/Binaca/260781/bn_7023344978",
         "https://dentocareprofessional.co.uk/collections/aquafresh",
+        "https://oralb.co.uk/en-gb/product-collections/electric-toothbrushes/io",
     ],
 )
 def test_added_listing_shapes_are_demoted(url: str) -> None:
@@ -592,6 +593,61 @@ def test_among_gtin_confirmed_pages_the_retailer_beats_the_directory() -> None:
     assert [item.evidence.url for item in ranked][:2] == ["https://colgate.com/p", directory.url]
     only_directory, _ = select(subject, [directory, no_gtin], CONFIG)
     assert only_directory.url == directory.url
+
+
+# --- site roots and brand landing pages (measured on the full qa run, 2026-09-12) ---
+
+
+def test_a_brand_homepage_is_demoted_below_a_product_page() -> None:
+    """**94 of 412 qa selections were a brand's homepage** —
+    `colgate.com/en-gb` x43, `oralb.co.uk/en-gb`, `listerine.co.uk/`. A
+    homepage carries the brand, a plausible title, no size and no negative
+    word, so the weighted score likes it exactly when the product's own page
+    is missing from the pack. Demoted like a listing; still selectable when
+    nothing else was fetched."""
+    subject = query(
+        brand="COLGATE",
+        desc="colgate max white ultra toothpaste 75ml",
+        variants=["max", "white", "ultra"],
+        size_ml=75.0,
+        hints=["toothpaste"],
+    )
+    home = page(
+        url="https://colgate.com/en-gb",
+        title="Colgate | Toothpaste, Toothbrushes & Oral Care Resources",
+    )
+    product = page(
+        url="https://colgate.com/en-gb/products/toothpaste/max-white-ultra",
+        title="Colgate Max White Ultra Toothpaste 75ml",
+    )
+    selection, ranked = select(subject, [home, product], CONFIG)
+    assert selection.url == product.url
+    flagged = next(item for item in ranked if item.evidence.url == home.url)
+    assert "site_root" in flagged.features.negative_flags and not flagged.rejected
+    alone, _ = select(subject, [home], CONFIG)
+    assert alone.url == home.url  # demoted, never rejected
+
+
+@pytest.mark.parametrize(
+    ("url", "brand", "expected"),
+    [
+        ("https://listerine.co.uk/", "LISTERINE", True),  # root, 51 qa selections
+        ("https://oralb.co.uk/en-gb", "ORAL B", True),  # one locale segment, 43
+        ("https://colgate.com/en_GB/", "COLGATE", True),
+        ("https://superdrug.com/colgate", "COLGATE", True),  # brand landing page
+        ("https://savers.co.uk/oral-b", "ORAL-B", True),
+        ("https://boots.com/colgate-total-75ml", "COLGATE", False),  # a product slug
+        ("https://colgate.com/en-gb/products/max-white", "COLGATE", False),  # two segments
+        ("https://superdrug.com/colgate", "AQUAFRESH", False),  # another brand's page
+        ("https://shop.com/en-gb-toothpaste", "COLGATE", False),  # not a locale
+    ],
+)
+def test_site_root_fires_on_roots_locales_and_brand_landings_only(
+    url: str, brand: str, expected: bool
+) -> None:
+    subject = query(brand=brand)
+    features = compute_features(subject, page(url=url, title="Toothpaste 75ml"), CONFIG)
+    assert ("site_root" in features.negative_flags) is expected
 
 
 def test_a_reference_or_social_page_is_demoted_not_rejected() -> None:

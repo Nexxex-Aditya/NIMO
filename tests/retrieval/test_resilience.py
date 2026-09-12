@@ -318,6 +318,74 @@ def test_early_exit_does_not_stop_before_the_cap_is_reached() -> None:
     assert issued == ["S1", "S2", "S3"]
 
 
+def _about(url: str) -> bool:
+    return "/about/" in url
+
+
+def test_about_pages_do_not_fill_the_early_exit_budget() -> None:
+    """**Measured 2026-09-12 (P18's live check, then the qa cache):** a
+    barcode-plus-brand query for a product no engine indexes by number
+    returns the brand's homepage, product index and retailer category pages
+    — eight safe unique URLs, none a product — and they stopped the cascade
+    before S3 ran. 94 of 412 qa rows submitted a homepage
+    (`specs/retrieval.md` §5a.8)."""
+    issued: list[str] = []
+
+    def homepages_then_products(query: SearchQuery, limit: int) -> list[SearchResult]:
+        issued.append(query.strategy)
+        kind = "about" if query.strategy == "S2" else "product"
+        return [
+            SearchResult(f"https://shop.com/{kind}/{query.strategy}/{i}", "brave", i, None)
+            for i in range(1, 9)
+        ]
+
+    config = RetrievalConfig(**{**CONFIG.__dict__, "fetch_budget": 8, "max_candidates": 20})
+    queries = [SearchQuery(name, f"q{name}") for name in ("S2", "S3", "S4")]
+    merged = merge_candidates(queries, homepages_then_products, config, _about)
+    assert issued == ["S2", "S3"], f"S2's eight about-pages must not stop the cascade; got {issued}"
+    # ordering: product-shaped first (S3's), the about-pages last — so the
+    # fetched prefix is S3's product pages, not S2's homepages
+    fetched = [c.source_query for c in merged[: config.fetch_budget]]
+    assert fetched == ["S3"] * 8, fetched
+    assert all(_about(c.url) for c in merged[config.fetch_budget :])
+
+
+def test_product_shaped_s2_results_keep_their_place_ahead_of_s3() -> None:
+    """The rule must not disturb the rows it was not built for: where S2
+    answered with product pages, those are fetched first and S3 does not
+    run — exactly the previous behaviour, which found the 111 GTIN pages."""
+    issued: list[str] = []
+
+    def products(query: SearchQuery, limit: int) -> list[SearchResult]:
+        issued.append(query.strategy)
+        return [
+            SearchResult(f"https://shop.com/product/{query.strategy}/{i}", "brave", i, None)
+            for i in range(1, 9)
+        ]
+
+    config = RetrievalConfig(**{**CONFIG.__dict__, "fetch_budget": 8, "max_candidates": 20})
+    merged = merge_candidates(
+        [SearchQuery(n, f"q{n}") for n in ("S2", "S3")], products, config, _about
+    )
+    assert issued == ["S2"]
+    assert [c.source_query for c in merged] == ["S2"] * 8
+
+
+def test_without_an_about_judgement_the_merge_is_unchanged() -> None:
+    issued: list[str] = []
+
+    def homepages(query: SearchQuery, limit: int) -> list[SearchResult]:
+        issued.append(query.strategy)
+        return [
+            SearchResult(f"https://shop.com/about/{query.strategy}/{i}", "brave", i, None)
+            for i in range(1, 9)
+        ]
+
+    config = RetrievalConfig(**{**CONFIG.__dict__, "fetch_budget": 8, "max_candidates": 20})
+    merge_candidates([SearchQuery(n, f"q{n}") for n in ("S2", "S3")], homepages, config)
+    assert issued == ["S2"]
+
+
 # --- engine rotation (`specs/retrieval.md` §5a.7) ----------------------------
 
 

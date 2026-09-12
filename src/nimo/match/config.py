@@ -5,6 +5,7 @@ scoring function" as a forbidden pattern, and a scoring function is where the
 temptation is strongest.
 """
 
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -33,6 +34,7 @@ class MatchConfig:
     listing_url_patterns: tuple[str, ...]
     directory_domains: tuple[str, ...]
     non_commerce_domains: tuple[str, ...]
+    site_root_locale: re.Pattern[str]
     page_text_chars: int
     # P11 — `specs/adjudicate.md`; all [PROVISIONAL] until the gate runs
     adjudicate_gap_threshold: float
@@ -78,6 +80,15 @@ def load_match_config(path: Path = CONFIG_PATH) -> MatchConfig:
     non_commerce = data.get("non_commerce_domains")
     if not isinstance(non_commerce, list) or not non_commerce:
         raise MatchConfigError(f"{path}: `non_commerce_domains` must be a non-empty list.")
+    locale = data.get("site_root_locale_pattern")
+    if not isinstance(locale, str) or not locale:
+        raise MatchConfigError(f"{path}: `site_root_locale_pattern` must be a non-empty regex.")
+    try:
+        locale_pattern = re.compile(locale)
+    except re.error as error:
+        raise MatchConfigError(
+            f"{path}: `site_root_locale_pattern` is not a regex: {error}"
+        ) from error
     chars = data.get("page_text_chars")
     if isinstance(chars, bool) or not isinstance(chars, int) or chars < 1:
         raise MatchConfigError(f"{path}: `page_text_chars` must be a positive integer.")
@@ -108,6 +119,7 @@ def load_match_config(path: Path = CONFIG_PATH) -> MatchConfig:
         listing_url_patterns=tuple(str(pattern).lower() for pattern in listing),
         directory_domains=tuple(str(host).lower().lstrip(".") for host in directories),
         non_commerce_domains=tuple(str(host).lower().lstrip(".") for host in non_commerce),
+        site_root_locale=locale_pattern,
         page_text_chars=chars,
         adjudicate_gap_threshold=float(gap),
         adjudicate_top_k=top_k,

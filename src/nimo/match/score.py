@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 
 from nimo.contracts import CandidateEvidence, MatchFeatures, ProductQuery, Selection
 from nimo.match.config import MatchConfig
-from nimo.match.features import compute_features
+from nimo.match.features import ABOUT_FLAGS, compute_features
 
 if TYPE_CHECKING:
     # Type-only: calibration CONSUMES the matcher (harvest recomputes scores),
@@ -181,11 +181,9 @@ def rank_candidates(
 
 
 def _is_about_not_of(item: ScoredCandidate) -> bool:
-    """A directory or listing page is *about* the product, not *of* it."""
-    return any(
-        flag in ("directory", "listing_page", "non_commerce")
-        for flag in item.features.negative_flags
-    )
+    """A directory, listing or site-root page is *about* the product (or the
+    brand), not *of* it."""
+    return any(flag in ABOUT_FLAGS for flag in item.features.negative_flags)
 
 
 def select(

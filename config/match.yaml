@@ -103,6 +103,26 @@ listing_url_patterns:
   - "_nkw="          # ebay shop search (`/shop/poligrip?_nkw=poligrip`) — 4 selections
   - "/bn_"           # ebay browse node anywhere in the path (`/b/Binaca/260781/bn_7023344978`)
   - "/collections/"  # shopify collection listing (`/collections/aquafresh`) — 6 selections
+  # Added 2026-09-12 from P18's live check and the site-root rescoring:
+  - "/product-collections/"  # brand-site collection listing (`oralb.co.uk/en-gb/product-collections/electric-toothbrushes/io`)
+
+# --- Site roots and brand landing pages ----------------------------------------
+#
+# A brand's HOMEPAGE is not a product's page, and it is the candidate the
+# weighted features like best when the product's own page was not fetched:
+# it carries the brand, a plausible title, no size to mismatch and no
+# negative word. Measured 2026-09-12 on the full qa run: **94 of 412
+# selections (23%) were site roots** — `colgate.com/en-gb` x43,
+# `oralb.co.uk/en-gb`, `listerine.co.uk/` — plus 7 single-segment brand
+# landing pages (`superdrug.com/colgate`). Found through P18: a typed
+# product whose barcode no engine indexes gets brand homepages from S2,
+# and those filled the fetch budget before S3 ran (`specs/retrieval.md`
+# §5a.8). The `site_root` flag fires on a path that is empty, a single
+# locale segment matching the pattern below, or a single segment equal to
+# the query's brand token. DEMOTED like `listing_page`, never rejected, and
+# sorted as "about, not of" among equal scores. In retrieval, such URLs do
+# not count toward the early-exit budget and are fetched last.
+site_root_locale_pattern: "^[a-z]{2}(?:[-_][a-z]{2})?$"
 
 # --- Directory and price-comparison domains -----------------------------------
 #

@@ -33,6 +33,7 @@ from nimo.retrieval.config import (
 )
 from nimo.retrieval.queries import SearchQuery, StrategyName, build_queries, retailer_domain
 from nimo.retrieval.search import (
+    AboutFn,
     SearchFn,
     SearchResult,
     brand_signal_rate,
@@ -54,6 +55,7 @@ __all__ = [
     "RetrievalConfig",
     "RetrievalConfigError",
     "SearchError",
+    "AboutFn",
     "SearchFn",
     "SearchQuery",
     "SearchResult",

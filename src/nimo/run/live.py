@@ -46,6 +46,7 @@ from nimo.match import (
     Adjudicator,
     MatchConfig,
     ScoredCandidate,
+    about_page,
     audit_for,
     build_entity,
     decide,
@@ -205,8 +206,11 @@ def live_stages(
     from nimo.normalize import normalize_row
 
     def retrieve(query: ProductQuery) -> list[CandidateURL]:
+        def about(url: str) -> bool:
+            return about_page(url, query.brand, match_config)
+
         return merge_candidates(
-            build_queries(query, retailers_path), searx.search, retrieval_config
+            build_queries(query, retailers_path), searx.search, retrieval_config, about
         )
 
     def fetch(candidates: list[CandidateURL]) -> list[CandidateEvidence]:

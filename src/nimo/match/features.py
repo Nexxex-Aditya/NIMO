@@ -211,10 +211,33 @@ def negative_flags(query: ProductQuery, text: str, config: MatchConfig, url: str
     query_text = f"{query.desc_clean} {' '.join(query.tokens.variant_terms)}".lower()
     lowered = text.lower()
     flags = [flag for flag in config.negative_flags if flag in lowered and flag not in query_text]
+    return sorted(flags + url_shape_flags(url, query.brand, config))
+
+
+# The flags that mark a page as ABOUT the product (or the brand) rather than
+# OF it. `score.py` sorts them last among equal scores; retrieval keeps them
+# out of the early-exit budget and fetches them last.
+ABOUT_FLAGS = ("directory", "listing_page", "non_commerce", "site_root")
+
+
+def url_shape_flags(url: str, brand: str, config: MatchConfig) -> list[str]:
+    """Negative flags that need only the URL — no page text.
+
+    `site_root` is the newest and the largest: measured 2026-09-12, **94 of
+    412 qa selections were a brand's homepage** (`colgate.com/en-gb`,
+    `oralb.co.uk/en-gb`, `listerine.co.uk/`). A homepage carries the brand,
+    a plausible title, no size and no negative word, so the weighted score
+    likes it exactly when the product's own page is missing from the pack —
+    and nothing checked the URL's shape. Fires on an empty path, a single
+    locale segment (`/en-gb`), or a single segment equal to the brand token
+    (`superdrug.com/colgate`, a brand landing page).
+    """
     lowered_url = url.lower()
+    flags: list[str] = []
     if any(pattern in lowered_url for pattern in config.listing_url_patterns):
         flags.append("listing_page")
-    host = urlsplit(lowered_url).netloc
+    parts = urlsplit(lowered_url)
+    host = parts.netloc
     if host and _host_in(host, config.directory_domains):
         # A barcode directory or price aggregator: about the product, not the
         # product's page. Measured at 17% of qa selections (`config/match.yaml`).
@@ -222,7 +245,29 @@ def negative_flags(query: ProductQuery, text: str, config: MatchConfig, url: str
     if host and _host_in(host, config.non_commerce_domains):
         # An encyclopedia article or a social post: never a product's page.
         flags.append("non_commerce")
-    return sorted(flags)
+    if host and _is_site_root(parts.path, brand, config):
+        flags.append("site_root")
+    return flags
+
+
+def about_page(url: str, brand: str, config: MatchConfig) -> bool:
+    """Is this URL's shape that of a page about the product rather than of
+    it? The retrieval-side view of `url_shape_flags`, injected into
+    `merge_candidates` so retrieval never imports the matcher."""
+    return any(flag in ABOUT_FLAGS for flag in url_shape_flags(url, brand, config))
+
+
+def _is_site_root(path: str, brand: str, config: MatchConfig) -> bool:
+    segments = [segment for segment in path.split("/") if segment]
+    if not segments:
+        return True
+    if len(segments) != 1:
+        return False
+    segment = segments[0]
+    if config.site_root_locale.match(segment):
+        return True
+    token = brand.split()[0].lower() if brand.strip() else ""
+    return bool(token) and segment in (token, token.replace(" ", "-"), token.replace("-", ""))
 
 
 def _host_in(host: str, domains: tuple[str, ...]) -> bool:

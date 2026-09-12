@@ -17,6 +17,8 @@ from nimo.match.adjudicate import (
 )
 from nimo.match.config import CONFIG_PATH, MatchConfig, MatchConfigError, load_match_config
 from nimo.match.features import (
+    ABOUT_FLAGS,
+    about_page,
     barcode_exact,
     brand_match,
     compute_features,
@@ -29,6 +31,7 @@ from nimo.match.features import (
     query_gtin_valid,
     retailer_domain_match,
     size_match,
+    url_shape_flags,
     variant_overlap,
 )
 from nimo.match.score import (
@@ -70,6 +73,8 @@ __all__ = [
     "barcode_exact",
     "brand_match",
     "build_entity",
+    "ABOUT_FLAGS",
+    "about_page",
     "compute_features",
     "count_match",
     "decide",
@@ -77,6 +82,7 @@ __all__ = [
     "load_match_config",
     "market_signal",
     "negative_flags",
+    "url_shape_flags",
     "page_gtin_valid",
     "page_text",
     "query_gtin_valid",

@@ -28,10 +28,19 @@ class SearchResult:
 SearchFn = Callable[[SearchQuery, int], list[SearchResult]]
 
 
+# A URL-shape judgement injected by the caller (the matcher owns the
+# patterns; retrieval must not import it): True for a page that is ABOUT
+# the product or the brand rather than OF it — a site root, a search
+# listing, a barcode directory. Such candidates never fill the early-exit
+# budget and are fetched last.
+AboutFn = Callable[[str], bool]
+
+
 def merge_candidates(
     queries: list[SearchQuery],
     search: SearchFn,
     config: RetrievalConfig,
+    about: AboutFn | None = None,
 ) -> list[CandidateURL]:
     """Run every strategy, merge, dedup by canonical URL, cap.
 
@@ -50,17 +59,29 @@ def merge_candidates(
     never fetches. Measured on the first 8 harvested `qa` rows: S3 and S5
     produced 86 candidates and 0 of them were fetched
     (`specs/retrieval.md` §5a.7).
+
+    **Pages ABOUT the product do not fill that budget, and are fetched
+    last** (`about`, when given). Measured 2026-09-12: a barcode-plus-brand
+    query for a product no engine indexes by number returns the brand's
+    homepage, its product index and its retailer category pages — eight
+    safe unique URLs, none a product — and under the rule above they
+    stopped the cascade before S3 ran; 94 of 412 qa rows submitted a
+    homepage (`specs/retrieval.md` §5a.8). Ordering is therefore
+    (about, strategy order, rank): a product-shaped S3 candidate is fetched
+    before a site-root S2 one, while S2's product-shaped results keep their
+    place ahead of S3's.
     """
     order = {name: position for position, name in enumerate(config.strategy_order)}
     seen: dict[str, CandidateURL] = {}
-    ranked: list[tuple[int, int, str]] = []
+    ranked: list[tuple[bool, int, int, str]] = []
+    product_shaped = 0
 
     for query in sorted(queries, key=lambda item: order.get(item.strategy, len(order))):
         # Early exit: the fetched set is already fixed. Exiting at
         # `max_candidates` (20) instead of `fetch_budget` (8) was measured to
         # spend half of every row's queries on candidates ranked 9-20, which
         # the runner never fetched (`config/retrieval.yaml`).
-        if config.early_exit and len(seen) >= config.fetch_budget:
+        if config.early_exit and product_shaped >= config.fetch_budget:
             break
 
         for result in search(query, config.per_strategy_limit)[: config.per_strategy_limit]:
@@ -79,10 +100,13 @@ def merge_candidates(
                 rank=result.rank,
                 title_snippet=result.title,
             )
-            ranked.append((order.get(query.strategy, len(order)), result.rank, url))
+            is_about = about(url) if about is not None else False
+            if not is_about:
+                product_shaped += 1
+            ranked.append((is_about, order.get(query.strategy, len(order)), result.rank, url))
 
     ranked.sort()
-    return [seen[url] for _, _, url in ranked[: config.max_candidates]]
+    return [seen[url] for _, _, _, url in ranked[: config.max_candidates]]
 
 
 def brand_signal_rate(candidates: list[CandidateURL], brand: str) -> float:
