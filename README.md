@@ -87,6 +87,13 @@ warm-start, or type a product of your own:
 uv run python -m nimo.ui --live          # http://127.0.0.1:8765
 ```
 
+The results explorer — every row of a run in one self-contained HTML file,
+searchable, no server (what evaluators open; `docs/07-judges-guide.md`):
+
+```bash
+uv run python -m nimo.site --sheet qa --out-dir data/out/office2     # -> site_qa.html
+```
+
 The batch demo — ten rows, every stage's record, and an HTML page:
 
 ```bash

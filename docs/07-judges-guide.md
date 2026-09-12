@@ -7,8 +7,14 @@ three levels of effort.
 
 ## Level 0 — ten minutes, nothing to install
 
-Two files, both produced by the pipeline and carried out of the run:
+Three files, all produced by the pipeline and carried out of the run:
 
+- **`site_qa.html`** — the results explorer: every one of the 412 rows,
+  searchable and filterable (by tier, module, GTIN-confirmed, adjudicated,
+  pack shot examined, failed), one card per row with every stage's record
+  in pipeline order, the registry, and the run's numbers. One file, no
+  server, no install: download it and open it. This is the interface for
+  anyone who will not run the pipeline — which is why it exists.
 - **`submission_qa.xlsx`** — the 412-row deliverable in the organizers'
   own column order. `PRODUCT_URL`, `MODULE`, the 13 characteristic columns,
   and `REASONING` — which is composed from the evidence record, never
@@ -19,9 +25,13 @@ Two files, both produced by the pipeline and carried out of the run:
   classify → characteristics → reason), then the run's tier distribution.
   Opens in any browser.
 
-Both live under `data/out/<run>/` after a run (`docs/06-office-runbook.md`
-step 4). `docs/04-build-standards.md` §1 is the build-order table; every
-phase's gate row says what was measured and what was not, in the same words.
+All three live under `data/out/<run>/` after a run
+(`docs/06-office-runbook.md` step 4). Why a file and not a website: the
+model endpoint is inside NIQ's network, so no public host can run the
+pipeline, and the rows are NIQ's dataset, so a public URL would publish
+them — the file stays wherever NIQ keeps files. `docs/04-build-standards.md`
+§1 is the build-order table; every phase's gate row says what was measured
+and what was not, in the same words.
 
 ## Level 1 — the live demonstration (on the NIQ network)
 

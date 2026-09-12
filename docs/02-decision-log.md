@@ -2984,6 +2984,42 @@ Harvested the same day: 636 of 824 rows have a pack shot in
 22 only unusable ones — the ceiling image evidence can reach is ~77% of rows.
 
 
+## 2026-09-12 — P17: a self-contained results explorer for evaluators, and why it is a file rather than a hosted site
+**Decision:** `src/nimo/site/` — `python -m nimo.site --sheet qa --out-dir D`
+writes one HTML file embedding every complete row's card, the failures, the
+registry and the run's numbers, rendered in the browser with search and
+filters by the live UI's own card renderer (`nimo.ui.page` split into
+`STYLE` / `CARD_JS` / `PAGE` so there is one renderer, not two). `specs/site.md`.
+**Why:** the user's question — evaluators will not clone a repo and run
+commands; they need an interface, free. Two constraints decide the shape.
+(1) No free public host can *run* NIMO: the model endpoint is RFC1918-only
+and retrieval is a container; Streamlit Cloud or Render would serve
+precomputed results at best. (2) The rows are NIQ's dataset — item codes,
+barcodes, descriptions — and the free tiers of Streamlit Cloud and GitHub
+Pages require a public repository; a public URL would publish NIQ data. So
+the interface for evaluators is the pipeline's *output*, in a file that
+needs no server and stays inside NIQ's own channels (a SharePoint link, the
+portal's attachments), and the live features are shown in the video the
+submission form requires. The file renders identically from a local path
+or a web server, so if the data may be public the same file goes on GitHub
+Pages — that is the owner's call, and the module does not make it. Built as
+P15's principle at full scale: a renderer over the artifacts, computing no
+new fact; the summary counts are counts over the embedded cards. Found
+while building: the first office tree predates `CharacteristicValues.image_sha256`
+and the strict contract refused it (right — `05` §5 schema drift); migrated
+by a one-off scratchpad script rather than by loosening the contract. Also
+found: the page's "Tier 3" number needed two figures, because the model was
+*asked* on 275 rows of the first office run and *pointed at a candidate* on
+60 — on the other 215 it saw no fit among a pack of error pages and Layer
+A's pick was kept; the page now prints both and says why they differ.
+**Affects:** new `src/nimo/site/` (`build.py`, `page.py`, `__main__.py`),
+`src/nimo/ui/page.py` (split; `renderCard` returns HTML, `render` writes
+it), new `tests/site/` (3), new `specs/site.md`, `04` §1 (P17 row),
+`docs/07-judges-guide.md`, `docs/06-office-runbook.md` (generate the file
+after assembly), `README.md`.
+**Status:** standing.
+
+
 ---
 
 # Open questions — resolve with organizers

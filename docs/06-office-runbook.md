@@ -133,6 +133,15 @@ the assembly report **`GLOBAL_PERCENTAGE_NATURAL_INGREDIENTS` filled on
 values (the first trip had 298: the 111 registry-hit rows were empty, fixed
 since). `data/out/office2/submission_qa.xlsx` is the deliverable.
 
+Then the explorer — the file evaluators open (`docs/07-judges-guide.md`):
+
+```bash
+uv run python -m nimo.site --sheet qa --out-dir data/out/office2 --title "NIMO — The Product Truth Agent" --note "Run of <date> on the NIQ network with the page and image caches; every row through the model."
+```
+
+`data/out/office2/site_qa.html`, ~3 MB, opens by double-click. Write the
+`--note` in your own words — it is printed verbatim under the numbers.
+
 Then the adjudication A/B — P11's gate, cheap because everything else is
 cached (only the adjudication calls are new, ~60):
 
@@ -148,7 +157,7 @@ Both submissions come back; the diff between them is the measured P11 delta.
 Zip and carry (USB/OneDrive):
 
 - `data/out/` — every `office2*` folder: submissions, assembly reports,
-  traces, artifacts. This is the deliverable and its evidence.
+  traces, artifacts, `site_qa.html`. This is the deliverable and its evidence.
 - `data/cache/llm/` — the model's answers (small); they make any re-run
   here free and byte-identical.
 - `data/registry/` — it will have gained characteristics on 111 entities.
