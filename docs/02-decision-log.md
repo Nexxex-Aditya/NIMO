@@ -3020,6 +3020,54 @@ after assembly), `README.md`.
 **Status:** standing.
 
 
+## 2026-09-12 — P18: a product list of your own, through the loader's own parsers
+**Decision:** `--input FILE` on `nimo.run`, `nimo.assemble` and `nimo.site`
+(`specs/input.md`, `src/nimo/loader/input.py`). Any `.xlsx`/`.csv` with
+`RETAILER_DESC` and `BRAND` — `EXTERNAL_CODE`, `RETAILER`, `COUNTRY`,
+`ITEM_CODE`, `NAN_KEY` optional — becomes `RawRow`s through the same field
+parsers the dataset loader and the UI's ad-hoc form use, keyed
+`<file-stem>:<index>` (a reserved stem is prefixed `input_`, so `qa.csv`
+cannot masquerade as the evaluation sheet). The assembler gains
+`assemble_input_rows`: the same 23-column `OutputRow`, the same validation,
+passthrough from the file's own strings. `retailer_name()` becomes public on
+the dataset loader and the UI's ad-hoc path uses it instead of its own
+yaml parse.
+**Why:** the user's question — can the project take other real data and
+Excel files? Until now the only doors were the pinned workbook (fingerprint-
+asserted on purpose, `05` §5) and one typed record in the UI. Decided
+inside it, each the loader's existing rule rather than a new one: every
+cell is read as text so `01` §3's numeric coercion cannot recur on the way
+in, with exactly one repair — a float-rendered whole number
+(`5014697056627.0`) is the integer — and a leading apostrophe stripped as
+the dataset reader strips it; a rounded barcode is nulled and flagged like
+a sheet's; an unknown `RETAILER` is **kept and logged, not refused** —
+`RetailerNotMappedError` exists to catch the dataset's 50 strings drifting,
+and a stranger's retailer is not drift, it only costs the site-restricted
+query; an absent `COUNTRY` is `GB` (`01` §9's retrieval market), stated as
+a named constant; absent keys are `0`, visibly not a code. Passthrough
+cells are kept untrimmed because `specs/assemble.md` passes through the
+file's bytes — the first draft trimmed them and the test caught it. The
+registry is shared: a barcode the dataset resolved answers a stranger's
+file from memory, which is the warm-start property (`03` §1a) shown on data
+nobody pre-loaded. Rejected: loosening the dataset loader's fingerprint
+(the assertion is the guard; a second door is cheaper than a weaker one);
+a fourth reserved name for ad-hoc rows (the UI already keys `adhoc:`).
+**Verified:** offline end to end on a three-row xlsx of products not in
+the dataset — run (normalize, registry, classify, gate-only
+characteristics, reason) → assemble (`submission_my_products.xlsx`) →
+site (`site_my_products.html`), 3/3 rows. The live path (SearxNG up) is
+`specs/input.md` §6's unticked item, recorded here when run. 9 tests,
+zero network; 805 pass.
+**Affects:** new `specs/input.md`, new `src/nimo/loader/input.py`,
+`src/nimo/loader/__init__.py`, `dataset.py` (`retailer_name`),
+`src/nimo/assemble/assemble.py` (`assemble_input_rows`), `__init__.py`,
+`__main__.py`, `src/nimo/run/__main__.py`, `src/nimo/site/__main__.py`,
+`src/nimo/ui/service.py`, new `tests/loader/test_input.py`,
+`tests/assemble/test_assemble.py` (+1), `04` §1 (P18 row), `README.md`,
+`docs/07-judges-guide.md`, `docs/06-office-runbook.md`.
+**Status:** standing — live check open.
+
+
 ---
 
 # Open questions — resolve with organizers

@@ -142,6 +142,12 @@ uv run python -m nimo.site --sheet qa --out-dir data/out/office2 --title "NIMO �
 `data/out/office2/site_qa.html`, ~3 MB, opens by double-click. Write the
 `--note` in your own words — it is printed verbatim under the numbers.
 
+If a judge hands over a product list of their own, the same three commands
+take `--input FILE` in place of `--sheet qa` (`specs/input.md`) — but rows
+the caches have not seen need live search and live retailer pages, which
+the office network does not serve (§0). Run those at home, or from the
+registry only (a barcode the registry knows resolves without a search).
+
 Then the adjudication A/B — P11's gate, cheap because everything else is
 cached (only the adjudication calls are new, ~60):
 

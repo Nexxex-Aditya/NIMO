@@ -94,6 +94,17 @@ searchable, no server (what evaluators open; `docs/07-judges-guide.md`):
 uv run python -m nimo.site --sheet qa --out-dir data/out/office2     # -> site_qa.html
 ```
 
+A product list of your own — any `.xlsx`/`.csv` with `RETAILER_DESC` and
+`BRAND` (barcode, retailer, country optional) through the same three
+commands; rows are keyed by the file's name, never `dev`/`qa`
+(`specs/input.md`):
+
+```bash
+uv run python -m nimo.run --input my_products.xlsx --live --characteristics --out-dir data/out/mine
+uv run python -m nimo.assemble --input my_products.xlsx --out-dir data/out/mine   # submission_my_products.xlsx
+uv run python -m nimo.site --input my_products.xlsx --out-dir data/out/mine       # site_my_products.html
+```
+
 The batch demo — ten rows, every stage's record, and an HTML page:
 
 ```bash

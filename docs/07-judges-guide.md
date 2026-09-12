@@ -77,7 +77,7 @@ Every number is a field the pipeline wrote; the trace file
 git clone https://github.com/Nexxex-Aditya/NIMO.git && cd NIMO
 uv sync
 cp .env.example .env         # CIS_LLM_API_KEY = your CIS key; SEARXNG_SECRET = anything
-uv run pytest -q             # 793 tests, no network — the correctness gate
+uv run pytest -q             # 805 tests, no network — the correctness gate
 ```
 
 Then unzip the cache bundle (`nimo-cache-<date>.zip`, ~300 MB, from the
@@ -111,6 +111,15 @@ Three checks worth making on the result:
 - **Honesty of the confidence.** `uv run python -m nimo.calibrate` prints
   the calibration curve and its held-out error: the matcher's confidence
   is a probability fitted against 236 barcode-confirmed pages, not a score.
+- **Your own products.** Put a few rows in an `.xlsx` or `.csv` with the
+  columns `RETAILER_DESC` and `BRAND` (add `EXTERNAL_CODE` for the barcode
+  if you have it) and run
+  `uv run python -m nimo.run --input yours.xlsx --live --characteristics --out-dir data/out/yours`,
+  then `nimo.assemble` and `nimo.site` with the same `--input` and
+  `--out-dir`. Rows the caches have not seen go through live search, so
+  this one needs SearxNG up (`docker compose up -d searxng`). The output
+  has the submission's 23 columns and its own explorer page; a product
+  the dataset already resolved answers from the registry without a search.
 
 ## What NIMO deliberately is not
 
