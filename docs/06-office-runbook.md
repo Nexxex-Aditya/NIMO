@@ -11,7 +11,7 @@ ordered list of what to do on a machine that can reach
 office network answers retail websites with an error page — 94% of page
 fetches failed there against 12% at home. So the office laptop must never
 fetch a page; it must find every page in the cache. **`data/cache/pages/`
-is required, not optional.** With all three caches present the office run
+is required, not optional.** With all four caches present the office run
 touches no website and no search engine; it only calls the model.
 
 Each step says what it produces and what "good" looks like. Stop at the
@@ -27,8 +27,8 @@ first step that does not look good; the later ones depend on it.
    - `data/cache/search/` (~2 MB) — every search query for `qa` AND `dev`.
      With it the office run needs no SearxNG and no Docker.
    - `data/cache/pages/` (~900 MB) — every fetched page. **Required**: the
-     office network cannot fetch them (above). Pages expire 7 days after
-     they were fetched (2026-09-11 → 2026-09-18); if the trip is later,
+     office network cannot fetch them (above). Pages expire 30 days after
+     they were fetched (2026-09-11 → 2026-10-11); if the trip is later,
      say so before leaving and the home machine refreshes them first.
    - `data/cache/llm/` — the model's answers so far. Small. A re-run of an
      already-answered prompt is free and byte-identical.
@@ -47,7 +47,7 @@ first step that does not look good; the later ones depend on it.
 ```bash
 git pull
 uv sync
-uv run pytest -q          # expect: all passed (771+). No network is used by tests.
+uv run pytest -q          # expect: all passed (793+). No network is used by tests.
 ```
 
 If `uv sync` fails on a corporate proxy, `uv` honours `HTTPS_PROXY`.
