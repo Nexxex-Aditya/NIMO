@@ -25,7 +25,16 @@ first step that does not look good; the later ones depend on it.
    it holds `CIS_LLM_API_KEY` and `SEARXNG_SECRET`. Put it at the repo root.
 3. **`data/cache/`** — all four, zipped together (~1 GB):
    - `data/cache/search/` (~2 MB) — every search query for `qa` AND `dev`.
-     With it the office run needs no SearxNG and no Docker.
+     With it the office run needs no SearxNG and no Docker — and it must
+     not, because **Docker Desktop cannot start on the office laptop at
+     all** ("Virtualization support not detected", 2026-09-12): SearxNG
+     cannot run there, so every query the run issues has to be in this
+     cache. A query that misses fails its row loudly (a typed `RowFailure`
+     at `retrieve`, message naming SearxNG), never silently. Search
+     entries expire **14 days** after they were made (`config/retrieval.yaml`
+     `cache_ttl_days`) — the 2026-09-12 re-harvest expires **2026-09-26**;
+     if the trip is later, the home machine re-harvests first. Do not run
+     `--input` (own products) or anything not in the two sheets there.
    - `data/cache/pages/` (~900 MB) — every fetched page. **Required**: the
      office network cannot fetch them (above). Pages expire 30 days after
      they were fetched (2026-09-11 → 2026-10-11); if the trip is later,
