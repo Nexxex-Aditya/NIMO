@@ -84,6 +84,13 @@ assembles to the contract's shape with the file's own passthrough.
 
 - [x] Offline end to end through the three CLIs on a three-row xlsx of
       products not in the dataset (2026-09-12).
-- [ ] Live end to end (SearxNG up): the same file through retrieval, fetch
-      and match — recorded in the decision log when run.
+- [x] Live end to end (SearxNG up): the same file through retrieval, fetch
+      and match (2026-09-12) — 3/3 rows, 31 s, 10 real page fetches. It
+      found the site-root defect (decision log 2026-09-12, "A brand
+      homepage is not a product page"): two rows whose typed barcode no
+      engine indexes resolved to brand homepages because S2's answers
+      filled the fetch budget before S3 ran. Under the fix the Colgate row
+      resolves to the Amazon page for Colgate Max White Ultra+ 75ml at
+      0.90; the Oral-B row lands on a brand-site collection page — an
+      honest limit when the barcode matches nothing anywhere.
 - [x] `04` §11 gate green.
