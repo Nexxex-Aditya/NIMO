@@ -72,11 +72,12 @@ Last `make check`: PASS as of the 2026-09-12 office-findings commits.
   uv run ruff check src tests            -> EXIT 0
   uv run ruff format --check src tests   -> EXIT 0
   uv run mypy --strict src tests         -> EXIT 0
-  uv run pytest                          -> EXIT 0  (771 passed)
+  uv run pytest                          -> EXIT 0  (793 passed)
 
 ## Do NOT re-do
 
 - P0–P16: built; P11's delta and P12's page-evidence accuracy await the second office trip — stated in `04` §1.
+- **Image evidence is built and ON** (`specs/characteristics.md` §2b): the pack shot rides on the characteristics call as base64; `data/cache/images/` must travel with the other caches; `--ping-image` verifies the gateway on the next trip; `use_image_evidence: false` is the way back if it refuses.
 - **A registry hit on an entity WITHOUT stored values must extract when the run extracts** (`Stages.extracts_values`) and such rows are stale on resume (`values_missing`). 111 submitted rows were empty before this. Don't "simplify" the hit path back to "has a module == complete".
 - **The office network cannot fetch retail pages** (94% `http_error`). Never plan an office run without `data/cache/pages/`; never read an office fetch failure as a retailer bot wall without checking the recorded `fetch http_error: HTTP …` warning.
 - **The pinned model is a reasoning model**: `llm_temperature: null` (it rejects 0), cap 4096 (hidden reasoning counts against it), `LlmTruncated` on a cap hit, `reasoning_tokens` logged. Determinism rests on the response cache.

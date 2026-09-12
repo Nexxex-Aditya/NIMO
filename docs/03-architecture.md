@@ -838,7 +838,13 @@ Order matters and is not negotiable:
    but must conform to the guideline's stated form.
 5. **Image evidence.** Several characteristics are visual — packaging material,
    bristle strength, head size, dispense method. Route the primary pack shot to
-   a multimodal call for those specifically. **[PROVISIONAL — Q7]**
+   a multimodal call for those specifically. Q7 answered by the organizer
+   2026-09-11 (image input accepted, URL or base64); built as
+   `specs/characteristics.md` §2b — the pack shot rides on the one
+   characteristics call as a base64 data URL when a visual characteristic
+   applies, fetched through the same guard and cache as pages. Verified on
+   the network by `python -m nimo.llm --ping-image`; `use_image_evidence`
+   is the switch.
 6. **Evidence-absent policy.** When a characteristic is applicable but the page
    carries no evidence, follow the guideline's stated default (often
    `NO CLAIM` or `NOT STATED` — note these are *values*, not nulls, and are

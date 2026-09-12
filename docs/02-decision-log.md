@@ -2928,6 +2928,59 @@ the office registry was unchanged).
 **Status:** standing — the deliverable is the second-trip run.
 
 
+## 2026-09-12 — Image evidence built: the pack shot rides on the characteristics call; Q7's multimodal half answered by the organizer
+**Decision:** `03` §4 stage 6 step 5 is implemented (`specs/characteristics.md`
+§2b): when a visual characteristic applies, the selected page's first usable
+image is fetched through `nimo.fetch.images` — the page fetcher's client,
+SSRF guard on every hop, robots, pacing, an allowlisted media type, a
+streamed byte cap, a content-addressed cache under `data/cache/images/` —
+and attached to the one characteristics call as a base64 data URL at
+`llm_image_detail: low`. `LlmCall.images`, hashed into the cache key;
+`CharacteristicValues.image_sha256` for provenance (contract change, `03`
+§3); prompt rule 7 frames the image as evidence under the untrusted rule;
+the reasoning says a packaging image was examined. `use_image_evidence:
+true`. `python -m nimo.llm --ping-image` sends a hand-built red square and
+checks the answer — the on-network verification, since the organizer's
+"AFAIK, both are accepted" is a statement rather than a measurement.
+**Why:** the four visual characteristics were among the weakest in the first
+office measurement (bristle 59%, head size 70%, packaging 71%, material 77%
+over the rows that ran) and are exactly what a pack shot shows; the
+organizer's Teams answer on 2026-09-11 removed the `[PROVISIONAL — Q7]`
+block. Base64 over URL because the model then fetches nothing — and the
+office network could not serve it a retailer CDN URL anyway (94% of fetches
+fail there), which also means the home machine must harvest every selected
+page's pack shot before a trip and the image cache travels with the others.
+Verified before writing the adapter: the installed SDK's `UserMessage`
+accepts a content list of `TextContentItem`/`ImageContentItem`, `ImageUrl`
+takes `detail`, and the serialized shape is the standard `image_url` item —
+`build_messages()` is pure and tested against that shape. Rejected: a
+separate multimodal call for the four characteristics only (`03`'s literal
+wording) — one call per row was P12's cost decision, the same image answers
+the other characteristics too, and a second call would double the prompt
+tokens for the guidelines; sending the image URL instead of bytes (see
+above); image selection by rendered size (the markup carries no dimensions).
+Found in the harvest and fixed: `<img src>` attributes were taken with their
+HTML escaping (`&amp;`), so the URL fetched was not the URL on the page.
+**Affects:** new `src/nimo/fetch/images.py`, `config/fetch.yaml`
+(`image_max_bytes`, `image_types`), `src/nimo/fetch/config.py`, `client.py`
+(`throttle` public), `__init__.py`, new `tests/fetch/test_images.py` (13);
+`src/nimo/llm/client.py` (`LlmImage`, `LlmCall.images`, key + cache entry),
+`azure.py` (`build_messages`), `config.py` (`image_detail`), `__main__.py`
+(`--ping-image`, `probe_png`), `config/models.yaml`, `tests/llm/` (+4);
+`src/nimo/contracts.py` (`image_sha256`), `03` §3; `config/characteristics.yaml`
+(`use_image_evidence: true`, `visual_characteristics`, `image_candidates`),
+`src/nimo/characteristics/config.py`, `extract.py` (`ImageFetchFn`,
+`pack_shot`), `gate.py`, `config/prompts/characteristics.md` (rule 7, the
+image line — hash changes), `tests/characteristics/` (+4, the Q7-refusal test
+replaced); `src/nimo/run/compose.py` (`pack_shot_fetcher`), `runner.py`
+(trace), `src/nimo/reason/compose.py`; `src/nimo/extract/page.py` (unescape);
+`specs/characteristics.md` §2/§2b, `03` §4 stage 6, Q7 row,
+`docs/06-office-runbook.md`. 793 tests pass.
+**Status:** standing — the probe and the first image-bearing run are on the
+second office trip; if the gateway refuses image content, the flag goes back
+to `false` and the four characteristics are answered from text as before.
+
+
 ---
 
 # Open questions — resolve with organizers
@@ -2940,7 +2993,7 @@ the office registry was unchanged).
 | Q4 | `sample_output` shows an Amazon.in page as the answer for a `FR,GB` item. Is cross-market resolution acceptable? | Medium — determines whether market is a filter or a feature | open |
 | Q5 | `sample_output` carries `GLOBAL_FLAVOUR_FRAGRANCE_INGREDIENT`, absent from `dev`/`qa`. Required in submission? | Medium | open |
 | Q6 | Is scraping retailer sites permitted, and are there rate/robots constraints for the demo? **Now load-bearing, and the constraint is on the search side, not the retailer side.** Measured 2026-09-11: a self-hosted SearxNG was CAPTCHA-blocked by Google and DuckDuckGo after a few dozen queries from one IP. 412 rows x 3-5 strategies is 1200-2000 queries, which no free engine will serve. **Measured 2026-09-11 with the full pipeline: 8 rows per cooldown window before all three free engines block (~13 hours for 412 rows, if blocks lift on schedule). NO PAID KEY EXISTS (confirmed 2026-09-11), so the free portfolio was re-engineered for an unattended run: engine rotation, early exit at the fetch budget, wait-for-cooldown (`specs/retrieval.md` §5a.7). MEASURED, same day: the full 412-row `qa` run completed on free engines in 107 minutes with 0 failures and 0 cooldown waits. The search-side constraint is solved by engineering; the retailer-side one is real (149 hosts served bot walls) and is what the organizers should be asked about.** Separately, P4 already found Tesco serving a bot interstitial to a browser, so the retailer side is real too. | **High — blocks P7's gate and caps the demo** | open |
-| Q7 | Which LLM is provided, with what context window and rate limit? Multimodal available for image evidence? | High — image comparison is an explicit requirement | **partially resolved 2026-09-10** — CIS LLM, model `hack-fest-gpt-5.6-luna`, `azure-ai-inference` SDK, api_version `2025-03-01-preview`; key in gitignored `.env`. **New constraint found by probing: the endpoint is internal-only** — it resolves to `10.249.224.116` (RFC1918) and TCP 443 times out off-network, so it needs the NIQ VPN. Context window, rate limit and multimodal support are still unstated — re-ask, and confirm connectivity on-network before P11/P12 execute. |
+| Q7 | Which LLM is provided, with what context window and rate limit? Multimodal available for image evidence? | High — image comparison is an explicit requirement | **partially resolved 2026-09-10** — CIS LLM, model `hack-fest-gpt-5.6-luna`, `azure-ai-inference` SDK, api_version `2025-03-01-preview`; key in gitignored `.env`. **New constraint found by probing: the endpoint is internal-only** — it resolves to `10.249.224.116` (RFC1918) and TCP 443 times out off-network, so it needs the NIQ VPN. Context window, rate limit and multimodal support are still unstated — re-ask, and confirm connectivity on-network before P11/P12 execute. **Connectivity confirmed 2026-09-12 (first office run). Multimodal: the organizer answered on Teams 2026-09-11 — "AFAIK, both [image URLs and base64] are accepted"; image evidence is built (`specs/characteristics.md` §2b) and `python -m nimo.llm --ping-image` verifies it on the next trip. Context window and rate limit still unstated; measured per-call usage (~2.5K tokens, 559 calls in 61 min without throttling) has not hit either.** |
 | Q8 | `dev` row with module `TOOTH CLEANING - GUM/TABLETS (NATURAL TEETH)` has `GLOBAL_PACKAGING_MATERIAL = 'GLASS'`, but that module's allowed values are `['CARDBOARD', 'PAPER', 'PLASTIC']` — no `GLASS`. Confirmed organizer data error, not a parsing issue on our side. Is a corrected value available? | Low — 1 of 412 rows, but worth flagging | open |
 | Q9 | `dev.BRAND` contains a double-encoded-UTF-8 mojibake value (`'JASÃƒâ€“N'`, 3 rows, presumably `JASÖN`); several `RETAILER_DESC` rows in both `dev`/`qa` are similarly corrupted. Can corrected-encoding sheets be provided, or should we repair on load? | Medium — degrades retrieval query quality for affected rows | open |
 

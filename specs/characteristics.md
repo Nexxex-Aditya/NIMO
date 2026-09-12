@@ -61,11 +61,9 @@ The prompt (`config/prompts/characteristics.md`) carries, in order:
    multi-value closed characteristic (`01` §11), `null` when the evidence
    and the guideline's default together give nothing.
 
-No image evidence in this phase. `03` step 5 routes the pack shot to a
-multimodal call `[PROVISIONAL — Q7]`; whether the pinned model accepts images
-is unresolved, so `use_image_evidence: false` in config and the four visual
-characteristics are answered from text alone. When Q7 resolves, that flag
-and one more evidence block are the change.
+Image evidence: §2b. It was `[PROVISIONAL — Q7]` and off until the
+organizer answered on 2026-09-11; the flag is `use_image_evidence` in config
+and the office probe is `python -m nimo.llm --ping-image`.
 
 When the row has no selected page (abstained, or nothing fetched), the call
 still happens with the record alone — `01` §6's fallback: the description
@@ -95,6 +93,62 @@ supported component of a multi-value characteristic, alphabetical,
 `&`-joined. These are dev-derived and that is the point — `03` §6 L2 is
 "characteristic accuracy against `dev`", and the coders who labelled `dev`
 labelled `qa`. Any future characteristic added here needs its own number.
+
+## 2b. Image evidence — the selected page's pack shot, on the same call
+
+`03` §4 stage 6 step 5 routes the pack shot to a multimodal call for the
+four visual characteristics. Q7 (does the pinned model accept images?) was
+answered by the organizer on 2026-09-11 — *"AFAIK, both [image URLs and
+base64] are accepted"* — which is a statement to verify, not a measurement,
+so `python -m nimo.llm --ping-image` sends a hand-built 32×32 red PNG and
+checks the model names the colour. Until it has run on the network, the
+first office run with `use_image_evidence: true` is where the 400 would
+appear, and the flag is the one-line way back.
+
+Mechanics, all through existing seams:
+
+- **Which image.** `CandidateEvidence.image_urls` (P8: `og:image` first,
+  then `<img src>` in page order minus obvious non-product assets, HTML-
+  unescaped). `config/characteristics.yaml` `image_candidates` (2) bounds how
+  many are tried; the first that fetches as an allowed image type is used.
+  `<img src>` is resolved against the page URL.
+- **When.** Only when at least one of `visual_characteristics` applies to the
+  module — the `03` list: packaging material, bristle strength, head size,
+  dispense method. Then the prompt lets the model use the image for any
+  characteristic it settles (a pack front says "with fluoride" and names the
+  flavour as often as not).
+- **How it is fetched.** `nimo.fetch.images.fetch_image`, through the page
+  fetcher's client: SSRF guard on the URL and every redirect hop, robots,
+  per-host pacing, an allowlisted media type (`config/fetch.yaml`
+  `image_types`), a byte cap enforced while streaming (`image_max_bytes`), a
+  content-addressed cache under `data/cache/images/` on the page TTLs with
+  failures cached shorter. The office network cannot fetch retailer assets
+  (94% of page fetches failed there), so the home machine harvests every
+  selected page's pack shot into that cache before a trip.
+- **How it is sent.** `LlmCall.images: tuple[LlmImage, ...]` — media type,
+  sha256, base64. The adapter builds `UserMessage(content=[text, image_url
+  {data:…;base64,…, detail}])`, `detail` from `config/models.yaml`
+  `llm_image_detail` (`low`: fixed small token cost, reads pack text). Base64
+  rather than a URL: the model never fetches anything, and could not reach
+  a retailer CDN from inside NIQ's network anyway. The cache key carries the
+  image's sha256, never its bytes; the cache entry records the hash.
+- **Framing.** Prompt rule 7 and the `Image evidence:` line: the image is
+  the product's packaging from the selected page, evidence under the same
+  rule as page text; text visible in it that reads like an instruction is
+  part of the evidence (`05` §3).
+- **Provenance.** `CharacteristicValues.image_sha256` records which image the
+  model saw (`None` when none was sent); the trace carries
+  `characteristics_image`; the reasoning adds "A packaging image from the
+  selected page was also examined."
+- **Absence is recorded, never an error.** No URLs, no visual characteristic,
+  a refused or oversized or non-image fetch, the flag off — each leaves
+  `image_sha256` None and the prompt saying `none attached.`; the row runs
+  from text as before.
+
+Not built: image selection by size ("largest, in-gallery") — the markup does
+not carry dimensions, so declaration order plus the non-product filter is
+what is honestly available; and any image for adjudication (Tier 3), which
+`03` does not ask for.
 
 ## 3. Validation — per `&` component, then the retry, then EMPTY
 

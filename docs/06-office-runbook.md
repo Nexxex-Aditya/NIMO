@@ -23,7 +23,7 @@ first step that does not look good; the later ones depend on it.
    are all in the repo. On the office laptop: `git pull`.
 2. **`.env`** is gitignored. Copy it by hand (USB/OneDrive, not chat/email):
    it holds `CIS_LLM_API_KEY` and `SEARXNG_SECRET`. Put it at the repo root.
-3. **`data/cache/`** — all three, zipped together (~1 GB):
+3. **`data/cache/`** — all four, zipped together (~1 GB):
    - `data/cache/search/` (~2 MB) — every search query for `qa` AND `dev`.
      With it the office run needs no SearxNG and no Docker.
    - `data/cache/pages/` (~900 MB) — every fetched page. **Required**: the
@@ -32,8 +32,12 @@ first step that does not look good; the later ones depend on it.
      say so before leaving and the home machine refreshes them first.
    - `data/cache/llm/` — the model's answers so far. Small. A re-run of an
      already-answered prompt is free and byte-identical.
+   - `data/cache/images/` — the pack shot of every selected page, harvested
+     at home (the office cannot fetch those either). Without it the runs
+     still work; the model just sees no images and `image_sha256` stays
+     empty on every row.
    Unzip into place so the paths read `data/cache/search`, `data/cache/pages`,
-   `data/cache/llm`.
+   `data/cache/llm`, `data/cache/images`.
 4. Do **not** copy `data/out/` — the office run writes a fresh artifact
    tree (below). If an older office tree exists there from the first trip,
    leave it; the commands below use new folder names.
@@ -66,6 +70,20 @@ call     : OK  ok=True  model_seen='...'
 Verified working on 2026-09-12 after two fixes (the model rejects
 `temperature=0`; it reasons before it writes, so the cap is 4096). If it
 fails now, the symptom table at the end has every case seen so far.
+
+Then the image probe — new since the first trip, and the one thing on this
+page that has never run on the network:
+
+```bash
+uv run python -m nimo.llm --ping-image
+```
+
+Good: `image : OK colour='red' shape='square' (as expected)` and a `tokens`
+line — the prompt figure is what one image costs per row. The organizer
+said the model accepts images; this is the check. If it says `FAILED` with
+a 400 naming `image_url` or `content`, the gateway does not take image
+input: set `use_image_evidence: false` in `config/characteristics.yaml` and
+carry on — everything below runs from text, as the first trip did.
 
 ## 3. The dev gate — the P12 number (about 1 hour, unattended)
 
@@ -134,6 +152,8 @@ Zip and carry (USB/OneDrive):
 - `data/cache/llm/` — the model's answers (small); they make any re-run
   here free and byte-identical.
 - `data/registry/` — it will have gained characteristics on 111 entities.
+- The `--ping-image` output line (the per-image token cost and whether it
+  saw the colour).
 - The terminal output of both `--evaluate` runs and each run summary
   (screenshots are fine).
 
@@ -150,6 +170,9 @@ already here.
 | `LlmValidationError … input_value=''` | old checkout (64-token ping cap) | `git pull` (fixed 2026-09-12) |
 | `LlmTruncated` | the model's reasoning ate the output cap | `llm_reasoning_effort: low`, else raise `llm_max_output_tokens` (`config/models.yaml`) |
 | `--ping` 400 mentioning `max_tokens` | gateway wants the newer field name | `llm_max_tokens_param: max_completion_tokens` in `config/models.yaml` |
+| `--ping-image` 400 naming `image_url` / `content` | the gateway does not accept image input | `use_image_evidence: false` in `config/characteristics.yaml`; the rest runs from text |
+| `--ping-image` OK but colour is not red | the model got the image and misread a red square | send the line; leave images on |
+| `pack_shot_unavailable` on most rows | image cache not in place | unzip `data/cache/images/`; harmless otherwise — rows run from text |
 | rows fail at `retrieve` | search cache missing and no SearxNG | copy `data/cache/search/` (both sheets are in it) |
 | `page-cache hit/miss` shows many misses | page cache not in place — the office network cannot fetch | stop; unzip `data/cache/pages/` into place; re-run (it resumes) |
 | many `fetch http_error: HTTP …` warnings in the artifacts | same — the proxy answered instead of the retailer | same |
