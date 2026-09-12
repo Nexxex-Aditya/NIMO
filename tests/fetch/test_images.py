@@ -144,6 +144,11 @@ def test_the_cache_is_keyed_on_the_image_url_and_stores_bytes_beside_meta(tmp_pa
         ("https://boots.com/p/1", "/media/p.jpg", "https://boots.com/media/p.jpg"),
         ("https://boots.com/p/1", "https://cdn.x.com/p.jpg", "https://cdn.x.com/p.jpg"),
         ("https://boots.com/p/1", "//cdn.x.com/p.jpg", "https://cdn.x.com/p.jpg"),
+        (
+            "https://s.test/p",
+            "/f/p.png?v=1&amp;width=3840",
+            "https://s.test/f/p.png?v=1&width=3840",
+        ),
     ],
 )
 def test_relative_image_urls_resolve_against_the_page(page: str, src: str, expected: str) -> None:

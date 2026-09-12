@@ -13,6 +13,7 @@ must already be here — the home machine harvests them and the cache travels.
 """
 
 import hashlib
+import html
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -139,8 +140,12 @@ def default_image_cache(
 
 
 def resolve_image_url(page_url: str, image_url: str) -> str:
-    """`<img src>` is often page-relative; `og:image` is not. One rule."""
-    return urljoin(page_url, image_url.strip())
+    """`<img src>` is often page-relative; `og:image` is not. One rule.
+
+    Also HTML-unescapes: artifacts extracted before 2026-09-12 carry the
+    attribute form (`&amp;`), and the extractor now unescapes at the source —
+    both paths must name the same image, or the cache misses at the office."""
+    return urljoin(page_url, html.unescape(image_url).strip())
 
 
 def fetch_image(fetcher: Fetcher, url: str, cache: ImageCache | None) -> ImageOutcome:

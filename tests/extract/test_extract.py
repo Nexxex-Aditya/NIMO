@@ -246,3 +246,13 @@ def test_body_text_is_capped() -> None:
     reach an LLM prompt at P11 and blow the token budget (`05` §3)."""
     evidence = extract_evidence("https://amazon.test/p", page("amazon"), TS, body_text_limit=5000)
     assert len(evidence.body_text) == 5000
+
+
+def test_image_src_attributes_are_html_unescaped() -> None:
+    """`&amp;` inside a `src` attribute is markup, not the URL. Measured in the
+    2026-09-12 pack-shot harvest: the escaped form was fetched and failed."""
+    html = (
+        '<html><body><img src="https://cdn.shop/files/pack.png?v=1&amp;width=3840"></body></html>'
+    )
+    evidence = extract_evidence("https://shop.test/p", html, TS)
+    assert evidence.image_urls == ["https://cdn.shop/files/pack.png?v=1&width=3840"]

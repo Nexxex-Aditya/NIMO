@@ -110,7 +110,11 @@ def extract_images(html: str, og: dict[str, str], limit: int) -> list[str]:
     images: list[str] = []
     if og.get("image"):
         images.append(og["image"])
-    for src in _IMG.findall(html):
+    for raw in _IMG.findall(html):
+        # An attribute value is HTML-escaped: `?v=1&amp;width=3840` is the
+        # markup form of `?v=1&width=3840`. Measured 2026-09-12 in the image
+        # harvest: the escaped form was fetched verbatim and 404'd.
+        src = html_module.unescape(raw).strip()
         if _NOT_A_PACKSHOT.search(src) or src.startswith("data:"):
             continue
         if src not in images:
