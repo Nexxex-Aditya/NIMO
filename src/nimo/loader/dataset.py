@@ -7,6 +7,7 @@ Reads `data/raw/product_truth_agent_dataset.xlsx` (read-only, always — `04`
 """
 
 import ast
+from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
@@ -160,6 +161,19 @@ def _load_retailer_names(retailers_path: Path) -> dict[str, str]:
             )
         names[str(retailer_raw)] = str(entry["name"])
     return names
+
+
+@lru_cache(maxsize=4)
+def _retailer_names_cached(retailers_path: Path) -> dict[str, str]:
+    return _load_retailer_names(retailers_path)
+
+
+def retailer_name(retailer_raw: str, retailers_path: Path) -> str | None:
+    """The hand-reviewed name for a RETAILER string, or `None` when the table
+    has no entry. The public face of the table for callers that may meet a
+    retailer the dataset never had (the ad-hoc form, a product list of
+    someone else's) — a value, not the dict (`04` §3)."""
+    return _retailer_names_cached(retailers_path).get(retailer_raw)
 
 
 def _assert_input_schema(frame: pd.DataFrame, sheet: str, expected_rows: int) -> None:

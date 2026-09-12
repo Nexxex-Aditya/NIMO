@@ -13,11 +13,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import yaml
-
 from nimo.contracts import RawRow, RowFailure
 from nimo.demo.cards import RowCard, load_card, load_failures
-from nimo.loader import load_rows
+from nimo.loader import load_rows, retailer_name
 from nimo.loader.fields import parse_barcode, parse_brand, parse_countries, repair_encoding
 from nimo.registry import read_entities
 from nimo.retrieval import brand_signal_rate
@@ -47,20 +45,12 @@ class AdhocRecord:
 class UiService:
     pipeline: Pipeline
     rows: dict[str, list[RawRow]]
-    retailer_names: dict[str, str]
 
     @classmethod
     def create(cls, pipeline: Pipeline) -> "UiService":
-        raw = yaml.safe_load(RETAILERS.read_text(encoding="utf-8"))
-        names = (
-            {str(key): str(entry["name"]) for key, entry in raw.items() if isinstance(entry, dict)}
-            if isinstance(raw, dict)
-            else {}
-        )
         return cls(
             pipeline=pipeline,
             rows={sheet: load_rows(WORKBOOK, sheet, RETAILERS) for sheet in SHEETS},
-            retailer_names=names,
         )
 
     # --- listing --------------------------------------------------------------------
@@ -142,7 +132,8 @@ class UiService:
         desc_fixed, desc_suspect = repair_encoding(desc)
         brand, owner = parse_brand(brand_fixed)
         retailer_raw = (record.retailer or "").strip()
-        retailer = self.retailer_names.get(retailer_raw, retailer_raw or "UNKNOWN")
+        known = retailer_name(retailer_raw, RETAILERS)
+        retailer = known if known is not None else (retailer_raw or "UNKNOWN")
         countries = parse_countries(record.country.strip() if record.country else "GB") or ["GB"]
         digest = hashlib.sha256(
             f"{desc_fixed}|{brand_fixed}|{barcode_raw}|{retailer_raw}".encode()

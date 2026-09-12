@@ -37,7 +37,14 @@ from nimo.contracts import (
     RowFailure,
     Selection,
 )
-from nimo.loader import DatasetSchemaError, read_external_codes, read_header
+from nimo.loader import (
+    DatasetSchemaError,
+    InputTable,
+    external_code,
+    int_key,
+    read_external_codes,
+    read_header,
+)
 from nimo.run.artifacts import artifact_path, is_row_complete
 
 CONFIG_PATH = Path(__file__).resolve().parents[3] / "config" / "output.yaml"
@@ -272,6 +279,61 @@ def _outputs_for(
             raise AssemblyError(f"{row_uid}: {name}={value!r} fails validation: {outcome.reason}")
         outputs[name] = outcome.value
     return outputs
+
+
+def assemble_input_rows(
+    table: InputTable,
+    artifacts_root: Path,
+    rules: list[CharacteristicRule],
+    config: OutputConfig,
+    failures_path: Path | None = None,
+) -> tuple[list[OutputRow], AssemblyReport]:
+    """`assemble_rows` for a bring-your-own product list (`specs/input.md`):
+    the passthrough columns are the file's own strings — a column the file
+    did not have is empty (or 0 for the two integer keys), never invented —
+    and the output has the same 23-column shape, validated the same way."""
+    known_modules = {rule.module for rule in rules}
+    failure_stages = _failure_stages(failures_path)
+    report = AssemblyReport(
+        sheet=table.name,
+        rows=len(table.records),
+        complete=0,
+        product_url_field=config.product_url_field,
+    )
+    rows: list[OutputRow] = []
+    for index, record in enumerate(table.records):
+        row_uid = f"{table.name}:{index}"
+        inputs = {
+            "ITEM_CODE": int_key(record.get("ITEM_CODE")),
+            "NAN_KEY": int_key(record.get("NAN_KEY")),
+            "EXTERNAL_CODE": external_code(record) or "",
+            "COUNTRY": record.get("COUNTRY") or "",
+            "RETAILER_DESC": record.get("RETAILER_DESC") or "",
+            "RETAILER": record.get("RETAILER") or "",
+            "BRAND": record.get("BRAND") or "",
+        }
+        outputs: dict[str, str | None] = dict.fromkeys(
+            ["PRODUCT_URL", "REASONING", "MODULE", *CHARACTERISTIC_COLUMNS]
+        )
+        if is_row_complete(artifacts_root, row_uid):
+            outputs = _outputs_for(row_uid, artifacts_root, inputs, rules, known_modules, config)
+            report.complete += 1
+            registry = RegistryLookupResult.model_validate_json(
+                artifact_path(artifacts_root, "registry", row_uid).read_text(encoding="utf-8")
+            )
+            selection = Selection.model_validate_json(
+                artifact_path(artifacts_root, "match", row_uid).read_text(encoding="utf-8")
+            )
+            report.tier_counts[registry.tier if registry.hit else selection.resolution_tier] += 1
+        else:
+            report.blank_row_uids.append(row_uid)
+            if row_uid in failure_stages:
+                report.failure_stages[row_uid] = failure_stages[row_uid]
+        for name, value in outputs.items():
+            if value is not None:
+                report.column_fill[name] += 1
+        rows.append(OutputRow.model_validate({**inputs, **outputs}))
+    return rows, report
 
 
 # --- writers ---------------------------------------------------------------------

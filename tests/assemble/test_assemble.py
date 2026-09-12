@@ -25,6 +25,7 @@ from nimo.assemble import (
     write_csv,
     write_xlsx,
 )
+from nimo.assemble import write_xlsx as write_xlsx_out
 from nimo.contracts import CharacteristicRule, ModulePrediction, OutputRow, ProductQuery, RawRow
 from nimo.loader import load_characteristic_rules, read_header
 from nimo.run import RunPaths, Stages, artifact_path, run
@@ -263,3 +264,42 @@ def test_config_rejects_an_unknown_product_url_field(tmp_path: Path) -> None:
 
 def test_stage_sequence_is_what_assembly_reads() -> None:
     assert STAGE_SEQUENCE[-4:] == ("match", "classify", "characteristics", "reason")
+
+
+# --- a product list of your own (`specs/input.md`) ------------------------------------
+
+
+def test_an_input_table_assembles_to_the_same_shape_with_its_own_passthrough(
+    stages: Stages, rules: list[CharacteristicRule], tmp_path: Path
+) -> None:
+    """The file's own strings pass through — a column it lacks is empty, the
+    two integer keys 0 — and the output validates exactly as a sheet's."""
+    from nimo.assemble import assemble_input_rows
+    from nimo.loader import input_rows, load_input
+    from tests.loader.test_input import write_xlsx
+
+    table = load_input(write_xlsx(tmp_path / "shelf.xlsx"))
+    rows = input_rows(table, WORKBOOK.parent.parent.parent / "config" / "retailers.yaml")
+    paths = RunPaths(
+        artifacts=tmp_path / "artifacts",
+        trace=tmp_path / "trace.jsonl",
+        failures=tmp_path / "failures.jsonl",
+        config_dir=WORKBOOK.parent.parent.parent / "config",
+    )
+    run(rows, stages, paths, "r", fixed_clock)
+    out, report = assemble_input_rows(table, paths.artifacts, rules, CONFIG, paths.failures)
+    assert report.sheet == "shelf" and (report.rows, report.complete) == (4, 4)
+    assert [list(r.model_dump()) for r in out][0] == list(OutputRow.model_fields)
+    first = out[0]
+    assert first.RETAILER_DESC == "aquafresh whitening pump 100ml"
+    assert first.BRAND == "AQUAFRESH (HALEON)" and first.RETAILER == "AMAZON (GB)"
+    assert first.EXTERNAL_CODE == "5014697056627" and (first.ITEM_CODE, first.NAN_KEY) == (0, 0)
+    assert first.MODULE is not None and first.REASONING
+    assert out[1].EXTERNAL_CODE == "5010123456789"  # apostrophe stripped, as the dataset's is
+    assert out[3].RETAILER_DESC == "  colgate   total  75ml "  # not the repaired row's
+    path = tmp_path / "submission_shelf.xlsx"
+    write_xlsx_out(out, path, "shelf", CONFIG)
+    sheet = openpyxl.load_workbook(path)["shelf"]
+    assert [c.value for c in next(sheet.iter_rows(min_row=1, max_row=1))] == list(
+        OutputRow.model_fields
+    )

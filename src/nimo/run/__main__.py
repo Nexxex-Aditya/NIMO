@@ -21,6 +21,10 @@ Modes:
   could not separate the top candidates.
 - **`--out-dir D`:** write artifacts beside a baseline run instead of over
   it (`specs/adjudicate.md` §8).
+- **`--input FILE`:** a product list of your own (`.xlsx`/`.csv` with at
+  least `RETAILER_DESC` and `BRAND`) instead of a workbook sheet
+  (`specs/input.md`). Needs `--live` and a running SearxNG for rows the
+  caches have not seen.
 
 The composition itself lives in `run/compose.py`, shared with the UI.
 Batch-level setup failures (a missing workbook, a bad config) are deliberately
@@ -30,7 +34,7 @@ not caught: a missing workbook is not a per-row condition (`04` §4).
 import sys
 from pathlib import Path
 
-from nimo.loader import load_rows
+from nimo.loader import input_rows, load_input, load_rows
 from nimo.run.compose import OUT_DIR, RETAILERS, WORKBOOK, Pipeline, PipelineConfigError
 from nimo.run.runner import format_summary
 
@@ -57,7 +61,17 @@ def main(argv: list[str]) -> int:
         print(str(error))
         return 2
 
-    rows = load_rows(WORKBOOK, sheet, RETAILERS)
+    if "--input" in argv:
+        # A bring-your-own product list (`specs/input.md`). Its rows are keyed
+        # `<file-name>:<index>`, so its artifacts and cache entries never
+        # collide with the dataset's; `--sheet` is ignored.
+        table = load_input(Path(argv[argv.index("--input") + 1]))
+        sheet = table.name
+        run_id = argv[argv.index("--run-id") + 1] if "--run-id" in argv else f"run-{sheet}"
+        rows = input_rows(table, RETAILERS)
+        print(f"input: {table.source} -> {len(rows)} rows keyed `{sheet}:<n>`")
+    else:
+        rows = load_rows(WORKBOOK, sheet, RETAILERS)
     if limit is not None:
         rows = rows[:limit]
     entities_before = pipeline.registry_size

@@ -7,7 +7,7 @@ no server. `print` is the CLI's user-facing output (`04` §10).
 import sys
 from pathlib import Path
 
-from nimo.loader import load_rows
+from nimo.loader import input_rows, load_input, load_rows
 from nimo.run.compose import CONFIG_DIR, OUT_DIR, REGISTRY_DIR, RETAILERS, WORKBOOK
 from nimo.site.build import build_site
 
@@ -19,7 +19,14 @@ def main(argv: list[str]) -> int:
         argv[argv.index("--title") + 1] if "--title" in argv else f"NIMO — {sheet} results explorer"
     )
     notes = [argv[i + 1] for i, a in enumerate(argv) if a == "--note" and i + 1 < len(argv)]
-    rows = load_rows(WORKBOOK, sheet, RETAILERS)
+    if "--input" in argv:
+        table = load_input(Path(argv[argv.index("--input") + 1]))
+        sheet = table.name
+        rows = input_rows(table, RETAILERS)
+        if "--title" not in argv:
+            title = f"NIMO — {table.source.name} results explorer"
+    else:
+        rows = load_rows(WORKBOOK, sheet, RETAILERS)
     report = build_site(
         rows=rows,
         sheet=sheet,

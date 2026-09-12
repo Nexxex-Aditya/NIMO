@@ -9,13 +9,14 @@ import sys
 from pathlib import Path
 
 from nimo.assemble.assemble import (
+    assemble_input_rows,
     assemble_rows,
     format_report,
     load_output_config,
     write_csv,
     write_xlsx,
 )
-from nimo.loader import load_characteristic_rules
+from nimo.loader import load_characteristic_rules, load_input
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WORKBOOK = REPO_ROOT / "data" / "raw" / "product_truth_agent_dataset.xlsx"
@@ -23,22 +24,32 @@ OUT_DIR = REPO_ROOT / "data" / "out"
 
 
 def main(argv: list[str]) -> int:
-    sheet = argv[argv.index("--sheet") + 1] if "--sheet" in argv else "qa"
     out_dir = Path(argv[argv.index("--out-dir") + 1]) if "--out-dir" in argv else OUT_DIR
-    artifacts = (
-        Path(argv[argv.index("--artifacts") + 1])
-        if "--artifacts" in argv
-        else out_dir / "artifacts" / sheet
-    )
     config = load_output_config()
-    rows, report = assemble_rows(
-        WORKBOOK,
-        sheet,
-        artifacts,
-        load_characteristic_rules(WORKBOOK),
-        config,
-        failures_path=out_dir / "failures.jsonl",
-    )
+    rules = load_characteristic_rules(WORKBOOK)
+    if "--input" in argv:
+        # A bring-your-own product list (`specs/input.md`): keyed by the
+        # file's name, passthrough from the file itself.
+        table = load_input(Path(argv[argv.index("--input") + 1]))
+        sheet = table.name
+        artifacts = (
+            Path(argv[argv.index("--artifacts") + 1])
+            if "--artifacts" in argv
+            else out_dir / "artifacts" / sheet
+        )
+        rows, report = assemble_input_rows(
+            table, artifacts, rules, config, failures_path=out_dir / "failures.jsonl"
+        )
+    else:
+        sheet = argv[argv.index("--sheet") + 1] if "--sheet" in argv else "qa"
+        artifacts = (
+            Path(argv[argv.index("--artifacts") + 1])
+            if "--artifacts" in argv
+            else out_dir / "artifacts" / sheet
+        )
+        rows, report = assemble_rows(
+            WORKBOOK, sheet, artifacts, rules, config, failures_path=out_dir / "failures.jsonl"
+        )
     write_csv(rows, out_dir / f"submission_{sheet}.csv")
     write_xlsx(rows, out_dir / f"submission_{sheet}.xlsx", sheet, config)
     text = format_report(report)

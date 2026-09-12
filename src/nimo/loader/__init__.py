@@ -15,6 +15,7 @@ from nimo.loader.dataset import (
     load_rows,
     read_external_codes,
     read_header,
+    retailer_name,
 )
 from nimo.loader.errors import (
     DatasetDriftError,
@@ -30,6 +31,14 @@ from nimo.loader.fields import (
     parse_brand,
     parse_countries,
     repair_encoding,
+)
+from nimo.loader.input import (
+    InputTable,
+    external_code,
+    input_name,
+    input_rows,
+    int_key,
+    load_input,
 )
 
 __all__ = [
@@ -48,6 +57,13 @@ __all__ = [
     "load_qa_header",
     "load_rows",
     "read_external_codes",
+    "retailer_name",
+    "InputTable",
+    "input_name",
+    "external_code",
+    "input_rows",
+    "int_key",
+    "load_input",
     "normalize_characteristic_name",
     "parse_barcode",
     "parse_brand",
