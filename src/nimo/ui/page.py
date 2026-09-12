@@ -4,14 +4,7 @@ build step — it fetches JSON from the app and renders what the pipeline
 recorded. Kept as a Python string so it ships inside the package.
 """
 
-PAGE = r"""<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NIMO — the Product Truth Agent</title>
-<style>
-  :root { --bg:#f6f6f2; --card:#fff; --line:#e2e2dc; --ink:#1b1b1b; --muted:#6b6b66; --accent:#1f5fbf;
+STYLE = r"""  :root { --bg:#f6f6f2; --card:#fff; --line:#e2e2dc; --ink:#1b1b1b; --muted:#6b6b66; --accent:#1f5fbf;
           --ok:#1e7d3a; --warn:#a15c00; --bad:#b3261e; --tier0:#e5f5e8; --tier2:#eef1fa; --tier3:#fff3cd; }
   * { box-sizing:border-box }
   body { margin:0; font:14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--ink) }
@@ -50,7 +43,57 @@ PAGE = r"""<!doctype html>
   code { font-size:12px; background:#f1f1ec; padding:1px 4px; border-radius:4px }
   #status { font-size:13px; color:var(--muted); margin-top:8px; min-height:18px }
   a { color:var(--accent) }
-</style>
+"""
+
+# The row renderer, shared with the static explorer (`nimo.site`): one
+# function turns a card dict into the stage-by-stage HTML, so the exported
+# page and the live page cannot drift apart.
+CARD_JS = r"""const esc = (v) => String(v ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function host(u) { try { return new URL(u).host.replace(/^www\./, ''); } catch { return u || '-'; } }
+function pct(x) { return (100 * x).toFixed(0) + '%'; }
+
+function renderCard(c) {
+  if (c.failure) {
+    return `<div class="stage"><b>failed at</b><div class="bad">${esc(c.failure.stage)} — ${esc(c.failure.error_type)}: ${esc(c.failure.message)}</div></div>`;
+  }
+  const q = c.query, t = q.tokens, m = c.match, f = m.features, cls = c.classify, ch = c.characteristics;
+  const rows = [];
+  rows.push(['normalize', `<code>${esc(q.desc_clean)}</code><br><span class="kv"><b>size</b> ${t.size_value ?? '—'} ${esc(t.size_unit||'')}</span><span class="kv"><b>count</b> ${t.count ?? '—'}</span><span class="kv"><b>hints</b> ${esc((t.format_hints||[]).join(', ')||'—')}</span><span class="kv"><b>barcode</b> ${q.barcode ? esc(q.barcode) : (q.barcode_corrupt ? '<span class="warn">corrupt in source</span>' : 'none')}</span><span class="kv"><b>retailer</b> ${esc(q.retailer)}</span>`]);
+  rows.push(['registry', `<span class="tier ${esc(c.tier)}">${esc(c.tier)}</span> ${c.registry.hit ? `hit on <code>${esc(c.registry.entity.entity_id)}</code> — page and characteristics carried, stages 2–4 skipped` : 'miss — the product is new to the registry'}`]);
+  if (!c.registry.hit) {
+    const byS = {}; for (const cand of c.retrieve.candidates) byS[cand.source_query] = (byS[cand.source_query]||0) + 1;
+    rows.push(['retrieve', `${c.retrieve.candidates.length} candidates · ${esc(JSON.stringify(byS))} · brand signal ${pct(c.retrieve.brand_signal)}`]);
+    const st = {}; let withG = 0; for (const e of c.fetch) { st[e.fetch_status] = (st[e.fetch_status]||0)+1; if (e.gtin) withG++; }
+    rows.push(['fetch', `${c.fetch.length} fetched · ${esc(JSON.stringify(st))} · pages publishing a GTIN: ${withG}<br>` +
+      c.fetch.slice(0, 8).map(e => `<span class="muted">${esc(e.fetch_status)}</span> ${e.gtin ? '<span class="ok">GTIN</span> ' : ''}<a href="${esc(e.url)}" target="_blank">${esc(host(e.url))}</a> <span class="muted">${esc((e.title||'').slice(0,70))}</span>`).join('<br>')]);
+    const ftxt = f ? `gtin_exact <b>${f.barcode_exact}</b> · size <b>${esc(f.size_match)}</b> · count <b>${esc(f.count_match)}</b> · brand ${f.brand_match.toFixed(2)} · variant ${f.variant_overlap.toFixed(2)} · flags ${esc(JSON.stringify(f.negative_flags))} · calibrated <b>${f.calibrated_prob.toFixed(2)}</b>` : '';
+    rows.push(['match', m.url ? `<a href="${esc(m.url)}" target="_blank">${esc(host(m.url))}</a> · score ${m.confidence.toFixed(2)} · gap ${m.runner_up_gap.toFixed(2)}${m.adjudicated_by_llm ? ' · <span class="tier tier3_llm">Tier 3 tiebreak</span>' : ''}<br><span class="muted">${ftxt}</span>` + (m.adjudication ? `<br><span class="muted">model: ${esc(m.adjudication.rationale)}</span>` : '') : '<span class="warn">abstained — no candidate met the evidence threshold</span>']);
+  }
+  rows.push(['classify', `<b>${esc(cls.module)}</b> <span class="muted">· ${esc(cls.source)} · confidence ${cls.confidence.toFixed(2)}${cls.nearest_example_row_uid ? ` · most resembles ${esc(cls.nearest_example_row_uid)}` : ''}${cls.runner_up ? ` · runner-up ${esc(cls.runner_up)}` : ''}</span>`]);
+  const coded = Object.entries(ch.values).filter(([k,v]) => v !== null);
+  const empty = ch.applicable.filter(k => ch.values[k] === null);
+  let chtml = `<span class="muted">${esc(ch.source)} · ${ch.applicable.length} applicable · ${coded.length} coded</span>`;
+  if (coded.length) chtml += `<table style="margin-top:6px">${coded.map(([k,v]) => `<tr><td>${esc(k)}</td><td><b>${esc(v)}</b></td></tr>`).join('')}</table>`;
+  if (empty.length && ch.source === 'llm') chtml += `<div class="muted">no evidence: ${esc(empty.join(', '))}</div>`;
+  if (Object.keys(ch.rejected).length) chtml += `<div class="warn">refused by the validator: ${esc(JSON.stringify(ch.rejected))}</div>`;
+  if (ch.source === 'gate_only') chtml += `<div class="muted">values need the model (run with --characteristics on the NIQ network); the null pattern above is exact for this module</div>`;
+  rows.push(['characteristics', chtml]);
+  rows.push(['reason', `<div class="reason">${esc(c.reason.text)}</div><div class="muted" style="margin-top:4px">provenance: ${esc(c.reason.claims.join(' · '))}</div>`]);
+  return rows.map(([k, v]) => `<div class="stage"><b>${k}</b><div>${v}</div></div>`).join('');
+}
+
+function render(c) { $('#card').innerHTML = renderCard(c); }
+
+"""
+
+_PAGE_TEMPLATE = r"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NIMO — the Product Truth Agent</title>
+<style>
+__STYLE__</style>
 </head>
 <body>
 <header>
@@ -97,7 +140,6 @@ PAGE = r"""<!doctype html>
 </main>
 <script>
 const $ = (s) => document.querySelector(s);
-const esc = (v) => String(v ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 let current = null;   // {sheet, row_uid}
 let allRows = [];
 
@@ -171,40 +213,7 @@ async function lookup() {
   } catch (e) { $('#status').textContent = 'failed: ' + e.message; }
 }
 
-function host(u) { try { return new URL(u).host.replace(/^www\./, ''); } catch { return u || '-'; } }
-function pct(x) { return (100 * x).toFixed(0) + '%'; }
-
-function render(c) {
-  if (c.failure) {
-    $('#card').innerHTML = `<div class="stage"><b>failed at</b><div class="bad">${esc(c.failure.stage)} — ${esc(c.failure.error_type)}: ${esc(c.failure.message)}</div></div>`;
-    return;
-  }
-  const q = c.query, t = q.tokens, m = c.match, f = m.features, cls = c.classify, ch = c.characteristics;
-  const rows = [];
-  rows.push(['normalize', `<code>${esc(q.desc_clean)}</code><br><span class="kv"><b>size</b> ${t.size_value ?? '—'} ${esc(t.size_unit||'')}</span><span class="kv"><b>count</b> ${t.count ?? '—'}</span><span class="kv"><b>hints</b> ${esc((t.format_hints||[]).join(', ')||'—')}</span><span class="kv"><b>barcode</b> ${q.barcode ? esc(q.barcode) : (q.barcode_corrupt ? '<span class="warn">corrupt in source</span>' : 'none')}</span><span class="kv"><b>retailer</b> ${esc(q.retailer)}</span>`]);
-  rows.push(['registry', `<span class="tier ${esc(c.tier)}">${esc(c.tier)}</span> ${c.registry.hit ? `hit on <code>${esc(c.registry.entity.entity_id)}</code> — page and characteristics carried, stages 2–4 skipped` : 'miss — the product is new to the registry'}`]);
-  if (!c.registry.hit) {
-    const byS = {}; for (const cand of c.retrieve.candidates) byS[cand.source_query] = (byS[cand.source_query]||0) + 1;
-    rows.push(['retrieve', `${c.retrieve.candidates.length} candidates · ${esc(JSON.stringify(byS))} · brand signal ${pct(c.retrieve.brand_signal)}`]);
-    const st = {}; let withG = 0; for (const e of c.fetch) { st[e.fetch_status] = (st[e.fetch_status]||0)+1; if (e.gtin) withG++; }
-    rows.push(['fetch', `${c.fetch.length} fetched · ${esc(JSON.stringify(st))} · pages publishing a GTIN: ${withG}<br>` +
-      c.fetch.slice(0, 8).map(e => `<span class="muted">${esc(e.fetch_status)}</span> ${e.gtin ? '<span class="ok">GTIN</span> ' : ''}<a href="${esc(e.url)}" target="_blank">${esc(host(e.url))}</a> <span class="muted">${esc((e.title||'').slice(0,70))}</span>`).join('<br>')]);
-    const ftxt = f ? `gtin_exact <b>${f.barcode_exact}</b> · size <b>${esc(f.size_match)}</b> · count <b>${esc(f.count_match)}</b> · brand ${f.brand_match.toFixed(2)} · variant ${f.variant_overlap.toFixed(2)} · flags ${esc(JSON.stringify(f.negative_flags))} · calibrated <b>${f.calibrated_prob.toFixed(2)}</b>` : '';
-    rows.push(['match', m.url ? `<a href="${esc(m.url)}" target="_blank">${esc(host(m.url))}</a> · score ${m.confidence.toFixed(2)} · gap ${m.runner_up_gap.toFixed(2)}${m.adjudicated_by_llm ? ' · <span class="tier tier3_llm">Tier 3 tiebreak</span>' : ''}<br><span class="muted">${ftxt}</span>` + (m.adjudication ? `<br><span class="muted">model: ${esc(m.adjudication.rationale)}</span>` : '') : '<span class="warn">abstained — no candidate met the evidence threshold</span>']);
-  }
-  rows.push(['classify', `<b>${esc(cls.module)}</b> <span class="muted">· ${esc(cls.source)} · confidence ${cls.confidence.toFixed(2)}${cls.nearest_example_row_uid ? ` · most resembles ${esc(cls.nearest_example_row_uid)}` : ''}${cls.runner_up ? ` · runner-up ${esc(cls.runner_up)}` : ''}</span>`]);
-  const coded = Object.entries(ch.values).filter(([k,v]) => v !== null);
-  const empty = ch.applicable.filter(k => ch.values[k] === null);
-  let chtml = `<span class="muted">${esc(ch.source)} · ${ch.applicable.length} applicable · ${coded.length} coded</span>`;
-  if (coded.length) chtml += `<table style="margin-top:6px">${coded.map(([k,v]) => `<tr><td>${esc(k)}</td><td><b>${esc(v)}</b></td></tr>`).join('')}</table>`;
-  if (empty.length && ch.source === 'llm') chtml += `<div class="muted">no evidence: ${esc(empty.join(', '))}</div>`;
-  if (Object.keys(ch.rejected).length) chtml += `<div class="warn">refused by the validator: ${esc(JSON.stringify(ch.rejected))}</div>`;
-  if (ch.source === 'gate_only') chtml += `<div class="muted">values need the model (run with --characteristics on the NIQ network); the null pattern above is exact for this module</div>`;
-  rows.push(['characteristics', chtml]);
-  rows.push(['reason', `<div class="reason">${esc(c.reason.text)}</div><div class="muted" style="margin-top:4px">provenance: ${esc(c.reason.claims.join(' · '))}</div>`]);
-  $('#card').innerHTML = rows.map(([k, v]) => `<div class="stage"><b>${k}</b><div>${v}</div></div>`).join('');
-}
-
+__CARD_JS__
 async function loadRegistry() {
   const r = await api('/api/registry');
   $('#registry').innerHTML = `<div class="kv"><b>${r.entities}</b> resolved products</div><div class="kv"><b>${r.with_module}</b> with a module</div><div class="kv"><b>${r.with_characteristics}</b> with characteristics</div>` +
@@ -220,3 +229,5 @@ loadStatus(); loadRows(); loadRegistry();
 </body>
 </html>
 """
+
+PAGE = _PAGE_TEMPLATE.replace("__STYLE__", STYLE).replace("__CARD_JS__", CARD_JS)
