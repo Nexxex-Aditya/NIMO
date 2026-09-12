@@ -2979,6 +2979,9 @@ replaced); `src/nimo/run/compose.py` (`pack_shot_fetcher`), `runner.py`
 **Status:** standing — the probe and the first image-bearing run are on the
 second office trip; if the gateway refuses image content, the flag goes back
 to `false` and the four characteristics are answered from text as before.
+Harvested the same day: 636 of 824 rows have a pack shot in
+`data/cache/images/` (485 images, 42 MB); 166 pages offered no image URL,
+22 only unusable ones — the ceiling image evidence can reach is ~77% of rows.
 
 
 ---

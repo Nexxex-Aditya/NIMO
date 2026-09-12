@@ -145,6 +145,15 @@ Mechanics, all through existing seams:
   `image_sha256` None and the prompt saying `none attached.`; the row runs
   from text as before.
 
+**Coverage, measured on the home harvest 2026-09-12** (every selected page
+of both sheets, through `pack_shot_fetcher` — the pipeline's own path):
+**636 of 824 rows (77%) have a pack shot cached**; 166 rows' selected page
+offered no image URL at all (bot walls and JS shells yield no markup to
+extract from); 22 offered only unusable ones — a logo SVG, a 403 on the CDN,
+a banner over the 2 MB cap, a host that does not resolve. 485 distinct
+images, 42 MB. So image evidence reaches at most ~77% of rows; the rest run
+from text, as before, with `image_sha256` empty.
+
 Not built: image selection by size ("largest, in-gallery") — the markup does
 not carry dimensions, so declaration order plus the non-product filter is
 what is honestly available; and any image for adjudication (Tier 3), which
