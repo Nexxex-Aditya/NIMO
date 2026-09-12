@@ -114,6 +114,37 @@ evidence at all.
 and a single are different products; P3 already treats count that way and this
 must not soften it back into fuzzy text similarity.
 
+### 2a. URL-shape flags — pages *about* the product, not *of* it
+
+Four negative flags need only the URL, never the page text
+(`url_shape_flags`), and each was added from a measurement over real
+selections rather than from a list of things that might go wrong:
+
+| flag | shape (`config/match.yaml`) | measured |
+|---|---|---|
+| `listing_page` | search/listing markers: `/s?k=`, `/search?`, `/collections/`, `/product-collections/`, `_nkw=`, … | 2 of the first 5 live rows were Amazon search listings (2026-09-11) |
+| `directory` | barcode directories and price aggregators by host suffix | 70 of 412 qa selections (17%) |
+| `non_commerce` | encyclopedias, social, video by host suffix | 3 of 412 |
+| `site_root` | an empty path, a single locale segment (`/en-gb`), or a single segment equal to the brand token (`superdrug.com/colgate`) | **94 of 412 qa selections (23%)**, 18 of 412 dev (2026-09-12) |
+
+All four are **demoted, never rejected** — when nothing else was fetched
+the page still wins and the reasoning says it was demoted — and among equal
+scores `rank_candidates` sorts them last (`ABOUT_FLAGS`): identifier first,
+page type second, URL third.
+
+**Why `site_root` was the largest and the last to be found.** A brand's
+homepage carries the brand, a plausible title, no size to mismatch and no
+negative word, so the weighted score likes it — at 0.4-0.75 — exactly when
+the product's own page is missing from the pack, and nothing checked the
+URL's shape. It surfaced through P18: a typed product whose barcode no
+engine indexes got brand homepages from S2, and those filled the fetch
+budget before S3 ran (`specs/retrieval.md` §5a.8). Re-scoring the existing
+qa tree under the flag alone moved 99 selections, 95 of them to the *next*
+about-page in the same pack (`colgate.com/en-gb/products`,
+`oralb.co.uk/en-gb/support/…`) — the pack never contained the product. The
+flag is therefore paired with the retrieval change: it is what lets
+about-shaped candidates be recognised before they are fetched.
+
 ## 3. Comparing query to page — the same normalizer on both sides
 
 The page gives a title and body text; the query gives `DescTokens`. Comparing

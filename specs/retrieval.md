@@ -465,6 +465,40 @@ rows per window *measured from the trace of the next full run*, and until it
 exists this section is a projection — the same status the "~42 minutes"
 projection had before it was measured and found wrong.
 
+### 5a.8 About-pages do not fill the budget — found through P18, measured on qa
+
+§5a.3's early exit rests on one premise: the first `fetch_budget` safe
+unique candidates are worth fetching. P18's live check (2026-09-12) broke
+it. A typed product whose barcode no engine indexes by number sends S2
+(`<barcode> BRAND`) to the engines, which ignore the number and answer the
+brand word: the brand's homepage, its product index, a retailer's brand
+category page, an Amazon brand listing — eight safe unique URLs, none a
+product — and the cascade stopped before S3, the query that finds the
+product, ever ran. The matcher then chose the best of a pack that never
+held the answer: `colgate.com/en-gb` at 0.65.
+
+Measured on the qa cache, that is not a P18 edge case: **94 of 412 qa
+selections (23%) were site roots**, 43 of them `colgate.com/en-gb`;
+339 of 412 S2 answer sets carry at least one about-shaped page among their
+eight, and under the old rule S2 filled the budget on 387 rows.
+
+The rule now: `merge_candidates` takes an injected URL-shape judgement
+(`about`, wired from the matcher's `about_page` — retrieval never imports
+the matcher). **A candidate the judgement marks as about the product —
+site root, listing, directory, non-commerce host — does not count toward
+the early-exit budget, and the merged list is ordered `(about, strategy
+order, rank)`** so such candidates are fetched last. Two properties, both
+pinned by tests: S2's product-shaped results keep their place ahead of
+S3's, so the 111 GTIN-confirmed rows are untouched; and where S2 answered
+with homepages, S3 runs and its product pages are fetched first.
+
+Cost, measured before deciding: 347 of 412 qa rows now run S3 (336 of
+those queries were uncached), i.e. one more query on most rows and a
+re-harvest of the qa tree at home. Verified live on the P18 file first:
+the row that resolved to `colgate.com/en-gb` resolved to the Amazon page
+for Colgate Max White Ultra+ 75ml at 0.90 with an exact size, after S3
+found Boots, Superdrug, Asda and Sainsbury's listings of it too.
+
 ## 6. Merging and the candidate cap
 
 `03` §4 stage 2: "Target 10–20 unique candidates. Cap hard; more costs fetch

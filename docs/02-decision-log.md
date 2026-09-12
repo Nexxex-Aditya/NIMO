@@ -3068,6 +3068,71 @@ zero network; 805 pass.
 **Status:** standing — live check open.
 
 
+## 2026-09-12 — A brand homepage is not a product page: 94 of 412 qa selections were site roots, and the early exit that put them there
+**Decision:** Two paired changes. (1) Matcher: a `site_root` URL-shape
+negative flag — empty path, a single locale segment (`site_root_locale_pattern`
+in `config/match.yaml`), or a single segment equal to the brand token —
+demoted like `listing_page` and sorted last among equal scores
+(`ABOUT_FLAGS`; `specs/match.md` §2a); `/product-collections/` added to the
+listing patterns; the URL-only flags factored into `url_shape_flags` /
+`about_page`. (2) Retrieval: `merge_candidates` takes an injected
+URL-shape judgement (`about`, wired in `live.py` from the matcher's
+`about_page`; retrieval does not import the matcher); about-shaped
+candidates do not count toward the early-exit budget and the merged list
+is ordered `(about, strategy order, rank)` so they are fetched last
+(`specs/retrieval.md` §5a.8). The qa artifact tree is re-harvested at home
+under the rule; the previous tree is kept beside it as
+`data/out/artifacts_qa_pre_siteroot`.
+**Why:** found through P18's live check, then measured on the dataset.
+The three-row file's Colgate row resolved to `colgate.com/en-gb` at 0.65:
+S2 (`<barcode> COLGATE`) got the brand's homepage, its product index, a
+Superdrug brand category and an Amazon brand listing — eight safe unique
+URLs, none a product — and §5a.3's early exit stopped the cascade before
+S3 ran, so the matcher picked the best of a pack that never held the
+answer. This is the S1 failure of 2026-09-11 ("filled the fetch budget and
+stopped S2 from running") one strategy later, and it was already in the
+deliverable: **94 of 412 qa selections (23%) were site roots** — 51 bare
+roots, 43 `/en-gb` — plus 7 single-segment brand landing pages, and 18 of
+412 dev. Invisible until now because a homepage carries the brand, a
+plausible title, no size and no negative word, so it scores 0.4-0.75 like
+a real page, and no count or brand-signal rate can see it. Three
+alternatives were measured and rejected: a *query-token* signal on S2's
+results ("does any result mention a variant term or the size") fires on
+132 qa rows, mostly because qa descriptions are abbreviation soup
+(`csdl gm strg&prt` — whose S2 results were right and GTIN-confirmed), so
+the signal has to be a property of the *result's URL*, not the query; the
+matcher flag alone, re-scored offline over the existing qa tree, moves 99
+selections but 95 of them to the next about-page in the same pack
+(`colgate.com/en-gb/products`, `oralb.co.uk/en-gb/support/…`) — cosmetic,
+because S3 never ran; and rejecting rather than demoting site roots would
+blank rows where nothing else was fetched, which is Q3's call
+(abstention), not this one's. The cost was measured before deciding: 347
+of 412 qa rows now run S3 (336 queries uncached), one more query on most
+rows and a ~1-hour home re-harvest; S2's product-shaped results keep their
+place ahead of S3's, so the 111 GTIN-confirmed rows are untouched
+(pinned by `test_product_shaped_s2_results_keep_their_place_ahead_of_s3`).
+Verified live on the P18 file before the harvest: the Colgate row now
+resolves to the Amazon page for Colgate Max White Ultra+ 75ml at 0.90,
+size exact, after S3 surfaced Boots, Superdrug, Asda and Sainsbury's
+listings of it. The Oral-B row still lands on a brand-site collection page
+— its typed barcode matches no page anywhere, and the collection shape is
+now a listing pattern — an honest limit, recorded.
+**Affects:** `config/match.yaml` (`site_root_locale_pattern`, one listing
+pattern), `src/nimo/match/config.py`, `features.py` (`url_shape_flags`,
+`about_page`, `ABOUT_FLAGS`, `_is_site_root`), `score.py`, `__init__.py`;
+`src/nimo/retrieval/search.py` (`AboutFn`, `merge_candidates(..., about)`),
+`__init__.py`; `src/nimo/run/live.py`; `tests/match/test_match.py` (+2
+tests, one parametrized over 9 shapes), `tests/retrieval/test_resilience.py`
+(+3); `specs/match.md` new §2a, `specs/retrieval.md` new §5a.8, `04` §1
+P7/P9 rows. `data/out/artifacts/qa` re-harvested (gitignored);
+`data/registry/` gains whatever new GTIN accepts the re-harvest makes;
+`data/calibration/` refitted from the new tree. The office cache zip is
+rebuilt — the search cache gains the S3 answers and the page cache the
+pages they led to.
+**Status:** standing — HARD-20% (scoring and retrieval ordering). The
+re-harvest's numbers are appended below when it finishes.
+
+
 ---
 
 # Open questions — resolve with organizers
