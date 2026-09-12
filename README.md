@@ -42,6 +42,13 @@ The design authority is `docs/03-architecture.md`; the engineering rules are
 the dataset — three of its columns are silently corrupted by a spreadsheet
 number format, and the pipeline is built around that.
 
+## For judges
+
+`docs/07-judges-guide.md` — three levels: the deliverable and the demo page
+(nothing to install), the live interface on the NIQ network with a
+five-minute script, and running the whole thing yourself with the checks
+worth making.
+
 ## Running it
 
 Prerequisites: Python 3.12, [`uv`](https://docs.astral.sh/uv/), Docker.
