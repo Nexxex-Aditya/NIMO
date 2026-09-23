@@ -54,7 +54,7 @@ worth making.
 **Presenting or recording on the office laptop (no Docker)?** Follow
 [`OFFICE_DEMO.md`](OFFICE_DEMO.md): Brave Search API instead of SearxNG,
 cache-first so the dataset costs no credit. The deck is
-[`presentation/NIMO_Product_Truth_Agent.pptx`](presentation/NIMO_Product_Truth_Agent.pptx).
+[`presentation/NIMO_Hackfest_2026.pptx`](presentation/NIMO_Hackfest_2026.pptx), on the required Hackfest 2026 template.
 
 Prerequisites: Python 3.12, [`uv`](https://docs.astral.sh/uv/), Docker.
 

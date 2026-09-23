@@ -77,7 +77,8 @@ call(s)`; N should be 0 or close to it. Outputs:
 
 ## What to submit
 
-- `presentation/NIMO_Product_Truth_Agent.pptx` (speaker notes on every slide)
+- `presentation/NIMO_Hackfest_2026.pptx`: the deck on the required Hackfest 2026 template
+  (rebuild with `uv run --no-project python presentation/template/fill_template.py`)
 - the recorded MP4
 - `submission_qa.xlsx` and `site_qa.html` from step 4 (or the existing ones)
 - the repository link: https://github.com/Nexxex-Aditya/NIMO
