@@ -94,7 +94,7 @@ def main(argv: list[str]) -> int:
         pipeline.close()
 
     if pipeline.searx is not None:
-        print(f"engines circuit-broken: {pipeline.searx.breaker.blocked_engines or 'none'}")
+        print(pipeline.searx.status_line())
     if pipeline.fetcher is not None:
         blocked_hosts = sorted(
             host

@@ -166,6 +166,23 @@ backoff_max_s: 8.0
 # actually finishes.
 min_interval_s: 2.0
 
+# --- Search backend -------------------------------------------------------------
+#
+# `auto`: the Brave Search API when BRAVE_API_KEY is set in .env, else the
+# self-hosted SearxNG. The office laptop cannot run Docker (no hardware
+# virtualisation, 2026-09-12), so SearxNG cannot run there; the Brave API is
+# plain HTTPS. It is cache-first over every answer the free portfolio already
+# harvested (`src/nimo/retrieval/brave.py`), so the 412 qa rows cost no credit
+# and only a genuinely new query is paid for (`specs/retrieval.md` §5b).
+search_backend: auto
+
+brave_api:
+  endpoint: https://api.search.brave.com/res/v1/web/search
+  country: GB             # `01` §9: GB is the retrieval market; a bias, not a filter
+  min_interval_s: 1.0     # the key allows 50/s; nothing here needs more than 1/s
+  max_calls_per_run: 150  # paid credits: a runaway becomes a typed failure, not a bill
+  max_query_chars: 400    # the API's own limit on `q`
+
 # --- Paid API as backup, NOT primary ---------------------------------------
 #
 # The seam already exists and is deliberately the only thing that does:

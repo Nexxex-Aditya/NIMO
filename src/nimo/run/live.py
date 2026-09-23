@@ -66,7 +66,7 @@ from nimo.registry import (
 )
 from nimo.retrieval import (
     RetrievalConfig,
-    SearxngClient,
+    SearchBackend,
     build_queries,
     merge_candidates,
     retailer_domain,
@@ -175,7 +175,7 @@ class RegistryWriter:
 
 def live_stages(
     *,
-    searx: SearxngClient,
+    searx: SearchBackend,
     fetcher: Fetcher,
     retrieval_config: RetrievalConfig,
     match_config: MatchConfig,

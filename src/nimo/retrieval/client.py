@@ -98,6 +98,9 @@ class SearxngClient:
     def close(self) -> None:
         self.client.close()
 
+    def status_line(self) -> str:
+        return f"engines circuit-broken: {self.breaker.blocked_engines or 'none'}"
+
     def _throttle(self) -> None:
         """Space requests out. Too fast and the local instance's upstream
         engines rate-limit it, which surfaces as a retrieval *quality* problem

@@ -6,6 +6,7 @@ is what lets every merge rule here be tested with zero network (`04` §6).
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Protocol
 
 from nimo.contracts import CandidateURL
 from nimo.retrieval.canonical import UrlError, canonicalize, is_safe_candidate
@@ -26,6 +27,17 @@ class SearchResult:
 # Injected so the merge logic is testable without a live index, and so P8's
 # cache can wrap it later without this module changing.
 SearchFn = Callable[[SearchQuery, int], list[SearchResult]]
+
+
+class SearchBackend(Protocol):
+    """What the live pipeline needs from a search backend: SearxNG
+    (`client.py`) or the Brave Search API (`brave.py`)."""
+
+    def search(self, query: SearchQuery, limit: int) -> list[SearchResult]: ...
+
+    def close(self) -> None: ...
+
+    def status_line(self) -> str: ...
 
 
 # A URL-shape judgement injected by the caller (the matcher owns the

@@ -3,6 +3,12 @@
 Public surface only.
 """
 
+from nimo.retrieval.brave import (  # noqa: E402 — after client, which it imports
+    BraveApiClient,
+    BraveApiConfig,
+    load_brave_config,
+    search_backend,
+)
 from nimo.retrieval.breaker import EngineBreaker
 from nimo.retrieval.cache import (
     CacheError,
@@ -34,6 +40,7 @@ from nimo.retrieval.config import (
 from nimo.retrieval.queries import SearchQuery, StrategyName, build_queries, retailer_domain
 from nimo.retrieval.search import (
     AboutFn,
+    SearchBackend,
     SearchFn,
     SearchResult,
     brand_signal_rate,
@@ -56,6 +63,11 @@ __all__ = [
     "RetrievalConfigError",
     "SearchError",
     "AboutFn",
+    "BraveApiClient",
+    "BraveApiConfig",
+    "SearchBackend",
+    "load_brave_config",
+    "search_backend",
     "SearchFn",
     "SearchQuery",
     "SearchResult",

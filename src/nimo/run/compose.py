@@ -55,7 +55,15 @@ from nimo.match import Adjudicator, load_match_config
 from nimo.normalize import normalize_rows
 from nimo.reason import load_reason_config
 from nimo.registry import build_index, fit_identity_idf, load_thresholds, read_entities
-from nimo.retrieval import SearxngClient, default_cache, load_retrieval_config
+from nimo.retrieval import (
+    BraveApiClient,
+    SearchBackend,
+    SearxngClient,
+    default_cache,
+    load_brave_config,
+    load_retrieval_config,
+    search_backend,
+)
 from nimo.run.live import RegistryWriter, live_stages
 from nimo.run.runner import CacheCounter, RunPaths, Stages, offline_stages, run
 from nimo.settings import settings
@@ -89,7 +97,7 @@ class Pipeline:
     llm_counter: LlmCounter
     curve: IsotonicCurve | None
     tau_abstain: float
-    searx: SearxngClient | None = None
+    searx: SearchBackend | None = None
     fetcher: Fetcher | None = None
     writer: RegistryWriter | None = None
     _closed: bool = field(default=False, repr=False)
@@ -107,6 +115,7 @@ class Pipeline:
     ) -> "Pipeline":
         if adjudicate and not live:
             raise PipelineConfigError("adjudication needs live mode: Tier 3 reads fetched pages")
+        use_system_certificates()
         if (adjudicate or characteristics) and not settings.cis_llm_api_key:
             # `04` §9: validated present at startup, not at the first call.
             raise PipelineConfigError(
@@ -183,11 +192,17 @@ class Pipeline:
 
         rcfg = load_retrieval_config()
         fcfg = load_fetch_config()
-        searx = SearxngClient.create(
-            settings.searxng_base_url,
-            rcfg,
-            cache=default_cache(CACHE_DIR / "search", rcfg.cache_ttl_days, rcfg.cache_enabled),
-        )
+        search_cache = default_cache(CACHE_DIR / "search", rcfg.cache_ttl_days, rcfg.cache_enabled)
+        backend = search_backend()
+        searx: SearchBackend
+        if backend == "brave_api" or (backend == "auto" and settings.brave_api_key):
+            if not settings.brave_api_key:
+                raise PipelineConfigError("search_backend is brave_api but BRAVE_API_KEY is unset")
+            searx = BraveApiClient.create(
+                settings.brave_api_key, rcfg, load_brave_config(), cache=search_cache
+            )
+        else:
+            searx = SearxngClient.create(settings.searxng_base_url, rcfg, cache=search_cache)
         fetcher = Fetcher.create(
             fcfg,
             cache=default_page_cache(
@@ -290,6 +305,16 @@ class Pipeline:
             self.searx.close()
         if self.fetcher is not None:
             self.fetcher.close()
+
+
+def use_system_certificates() -> None:
+    """`NIMO_SYSTEM_CERTS=1`: verify HTTPS against the operating system's
+    certificate store instead of Python's bundled one — for a corporate proxy
+    that re-signs TLS with a company CA. Idempotent; off by default."""
+    if settings.nimo_system_certs:
+        import truststore
+
+        truststore.inject_into_ssl()
 
 
 def pack_shot_fetcher(fetcher: Fetcher, cache: ImageCache) -> ImageFetchFn:
