@@ -9,6 +9,14 @@ commands directly) before trusting either source.
 
 ## Right now
 
+**2026-09-23, submission day.** qa is 412/412 under the site-root rule;
+search runs through the Brave Search API when `BRAVE_API_KEY` is set
+(cache-first over the whole harvest, capped per run) so the office laptop
+needs no Docker. Office steps: `OFFICE_DEMO.md`. Deck: `presentation/`.
+Cache bundle: `scripts/pack_caches.py` → `nimo-cache-2026-09-23.zip`.
+Last gate: 827 tests pass. Everything below is the earlier state.
+
+
 Phase: ALL PHASES BUILT (P0–P16). THE FIRST OFFICE RUN HAPPENED (2026-09-12)
 AND ITS OUTPUT IS NOT THE DELIVERABLE — the second trip's is.
 

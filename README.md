@@ -51,6 +51,11 @@ worth making.
 
 ## Running it
 
+**Presenting or recording on the office laptop (no Docker)?** Follow
+[`OFFICE_DEMO.md`](OFFICE_DEMO.md): Brave Search API instead of SearxNG,
+cache-first so the dataset costs no credit. The deck is
+[`presentation/NIMO_Product_Truth_Agent.pptx`](presentation/NIMO_Product_Truth_Agent.pptx).
+
 Prerequisites: Python 3.12, [`uv`](https://docs.astral.sh/uv/), Docker.
 
 ```bash

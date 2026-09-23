@@ -3133,6 +3133,49 @@ pages they led to.
 re-harvest's numbers are appended below when it finishes.
 
 
+## 2026-09-23 — Submission day: Brave Search API backend, a UI crash fixed, search cache 30 days, the deck
+**Decision:** (1) `src/nimo/retrieval/brave.py`: the Brave Search API as a
+second search backend, chosen automatically when `BRAVE_API_KEY` is in
+`.env` (`search_backend: auto`). It is cache-first over the search cache
+under every SearxNG engine name before calling the API, so every query the
+free harvest answered costs no credit and returns identical candidates;
+401/402 fail loudly, 429/5xx/timeouts retry with jitter, and a per-run cap
+(`brave_api.max_calls_per_run: 150`) turns a runaway into a typed failure.
+`python -m nimo.retrieval --ping` checks key and network (1 credit);
+`NIMO_SYSTEM_CERTS=1` (truststore, off by default) verifies HTTPS against
+the Windows certificate store for a proxy that re-signs TLS. (2) The UI
+re-runs a row whose stored artifacts fail the current contracts instead of
+returning a 500. (3) Search cache TTL 14 → 30 days. (4) The presentation
+(`presentation/`, built by `build_deck.js`, every number from this log).
+**Why:** (1) the office laptop cannot run Docker (no hardware
+virtualisation), so SearxNG cannot run there, and the user has Brave
+credits, not a budget — hence cache-first over the whole harvest and a
+hard cap. Verified live: ping OK; the 2 qa rows the free engines had
+CAPTCHA-failed during the site-root re-harvest resolved for 2 paid calls —
+qa is 412/412 (100 → 0 homepages, 271 → 377 product pages, 111 → 114
+GTIN-confirmed, 111 rows answered from registry memory on the re-run). A new
+product typed into the UI resolved live in ~60 s to listerine.com at 0.90.
+(2) Found by driving the live UI: `data/out/ui` held artifacts from before
+`image_sha256`; the runner skipped the row as complete and the card load
+raised. Schema drift is refused, never loosened — the stale row is cleared
+and re-run. (3) The original harvest's entries (2026-09-11) would have
+expired on 2026-09-25 and an office run after that would have re-asked ~400
+queries on paid credits; 30 days matches the page cache and stays bounded
+(`05` §5). The dev re-harvest under the site-root rule was not finished
+(40/412): it needs Docker or paid credits, and dev is only the measurement
+sheet — its old caches still serve every query asked before the rule.
+**Affects:** new `src/nimo/retrieval/brave.py`, `__main__.py`,
+`tests/retrieval/test_brave.py` (7); `src/nimo/retrieval/search.py`
+(`SearchBackend`), `client.py` (`status_line`), `__init__.py`;
+`src/nimo/run/compose.py` (backend choice, `use_system_certificates`),
+`live.py`, `__main__.py`; `src/nimo/settings.py`; `config/retrieval.yaml`
+(`search_backend`, `brave_api`, `cache_ttl_days: 30`); `.env.example`;
+`pyproject.toml` (`truststore`); `src/nimo/ui/service.py`,
+`tests/ui/test_ui.py` (+1); new `scripts/pack_caches.py`,
+`OFFICE_DEMO.md`, `presentation/`; `README.md`; `data/registry/` (115).
+**Status:** standing.
+
+
 ---
 
 # Open questions — resolve with organizers

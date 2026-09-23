@@ -145,7 +145,9 @@ engine_cooldown_s: 900           # 15 min before that engine is tried again
 # iterating on the matcher affordable, and what lets a partially-blocked run
 # be resumed later without redoing the half that succeeded.
 cache_enabled: true
-cache_ttl_days: 14               # `05` §5 forbids an infinite TTL
+cache_ttl_days: 30               # `05` §5 forbids an infinite TTL. Was 14; raised 2026-09-23 to match
+                                 # the page cache: the dataset is fixed, and an expired entry on the office
+                                 # laptop is a paid Brave call for an answer already held.
 
 # `04` §6 — timeouts ALWAYS set, both halves. A read timeout with no connect
 # timeout still hangs forever on a black-holed host.
