@@ -51,7 +51,8 @@ worth making.
 
 ## Running it
 
-**Presenting or recording on the office laptop (no Docker)?** Follow
+**Recording the demo video?** Follow [`DEMO_VIDEO.md`](DEMO_VIDEO.md).
+**Presenting or running on the office laptop (no Docker)?** Follow
 [`OFFICE_DEMO.md`](OFFICE_DEMO.md): Brave Search API instead of SearxNG,
 cache-first so the dataset costs no credit. The deck is
 [`presentation/NIMO_Hackfest_2026.pptx`](presentation/NIMO_Hackfest_2026.pptx), on the required Hackfest 2026 template.
