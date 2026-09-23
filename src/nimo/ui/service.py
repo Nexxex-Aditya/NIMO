@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pydantic import ValidationError
+
 from nimo.contracts import RawRow, RowFailure
 from nimo.demo.cards import RowCard, load_card, load_failures
 from nimo.loader import load_rows, retailer_name
@@ -80,7 +82,12 @@ class UiService:
 
     def card(self, sheet: str, row_uid: str) -> dict[str, Any] | None:
         paths = self.pipeline.paths_for(sheet)
-        card = load_card(paths.artifacts, row_uid)
+        try:
+            card = load_card(paths.artifacts, row_uid)
+        except ValidationError:
+            # Written by an older version of the contracts (e.g. before
+            # `image_sha256`): stale, not an answer. `run_row` re-runs it.
+            return None
         if card is None:
             failure = load_failures(paths.failures).get(row_uid)
             return _failure_dict(failure) if failure is not None else None
@@ -92,7 +99,7 @@ class UiService:
         second run of a GTIN-confirmed row is a Tier 0 hit."""
         row = self._row(sheet, row_uid)
         paths = self.pipeline.paths_for(sheet)
-        if force:
+        if force or self._stale(paths.artifacts, row_uid):
             clear_artifacts(paths.artifacts, row_uid)
         before = self.pipeline.registry_size
         summary = self.pipeline.run_rows([row], sheet, f"ui-{sheet}")
@@ -109,6 +116,20 @@ class UiService:
             "llm_tokens": summary.llm_tokens,
         }
         return card
+
+    @staticmethod
+    def _stale(root: Path, row_uid: str) -> bool:
+        """A complete row whose artifacts no longer validate against the
+        current contracts. The runner would skip it as done; the UI would
+        then fail to load it. Cleared and re-run instead (`05` §5: schema
+        drift is refused, never loosened)."""
+        if not is_row_complete(root, row_uid):
+            return False
+        try:
+            load_card(root, row_uid)
+        except ValidationError:
+            return True
+        return False
 
     def lookup(self, record: AdhocRecord) -> dict[str, Any]:
         """A product typed by a person, run as a row of the `adhoc` sheet."""

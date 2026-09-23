@@ -53,6 +53,29 @@ def test_force_reruns_a_complete_row(client: TestClient) -> None:
     assert again["run"]["succeeded"] == 1
 
 
+def test_a_row_written_under_older_contracts_is_rerun_not_a_500(
+    tmp_path: Path,
+) -> None:
+    """Found driving the live UI on 2026-09-23: `data/out/ui` held artifacts
+    from before `CharacteristicValues.image_sha256`; the runner skipped the
+    row as complete and loading its card was a 500. A stale row is re-run."""
+    import json
+
+    from nimo.run.artifacts import artifact_path
+
+    pipeline = Pipeline.create(live=False, out_dir=tmp_path)
+    ui = TestClient(create_app(UiService.create(pipeline)))
+    assert ui.post("/api/run", json={"sheet": "dev", "row_uid": "dev:2"}).status_code == 200
+    path = artifact_path(pipeline.paths_for("dev").artifacts, "characteristics", "dev:2")
+    old = json.loads(path.read_text(encoding="utf-8"))
+    del old["image_sha256"]
+    path.write_text(json.dumps(old), encoding="utf-8")
+    assert ui.get("/api/rows/dev/dev:2").status_code == 404  # stale: no card, no crash
+    card = ui.post("/api/run", json={"sheet": "dev", "row_uid": "dev:2"})
+    assert card.status_code == 200 and card.json()["run"]["succeeded"] == 1
+    assert "image_sha256" in json.loads(path.read_text(encoding="utf-8"))
+
+
 def test_an_unknown_row_is_a_400(client: TestClient) -> None:
     response = client.post("/api/run", json={"sheet": "dev", "row_uid": "dev:9999"})
     assert response.status_code == 400 and "not a row" in response.json()["detail"]
