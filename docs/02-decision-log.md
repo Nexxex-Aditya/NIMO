@@ -79,7 +79,7 @@ hypothetical either — it's the same class as the barcode rounding defect
 already found in the source data (`01` §3).
 **Affects:** new `docs/05-security-safety.md`. `04` §11 (DoD gains a
 conditional item for fetch/registry/LLM modules), §12 (five new forbidden
-patterns), §13 (new escalation trigger), version bumped to 0.3. the session brief
+patterns), §13 (new escalation trigger), version bumped to 0.3. The session brief
 required reading and repo-conventions note.
 **Status:** standing
 
@@ -161,7 +161,7 @@ finer-grained state file does. `Status` remains the coarse phase-level marker;
 `PROGRESS.md` is what resumption actually reads.
 **Affects:** new `PROGRESS.md`. `04-build-standards.md` new §1a, `Status`
 column's framing corrected to "coarse marker, not the resumption mechanism",
-version bumped to 0.5. the session brief — `@PROGRESS.md` added as the first thing
+version bumped to 0.5. The session brief — `@PROGRESS.md` added as the first thing
 read (before the required-reading doc list), working agreement gains the
 continue-behavior rule, stale "Current state" section replaced with a pointer
 to `PROGRESS.md` instead of duplicating it.
@@ -361,7 +361,7 @@ treating placement as a manual, outside-the-repo step; if found elsewhere,
 **Why:** the build's P0 attempt found the workbook already committed at
 `Project_info/product_truth_agent_dataset.xlsx`, contradicting the spec's
 premise that it "lives... not in any location the implementation side can reach." Stale
-premise, not a the implementation side error — flagged correctly rather than guessed
+premise, not an implementation-side error — flagged correctly rather than guessed
 around (copying vs. moving have different consequences for whether the file
 ends up committed twice).
 **Affects:** `specs/scaffold.md` Precondition section. `specs/loader.md`'s
@@ -397,7 +397,7 @@ consciously — between-milestone recovery now relies on `git log` plus
 verification rather than a fine-grained written pointer.
 **Affects:** `04-build-standards.md` §1a (rewritten: format example,
 update discipline, resumption procedure), §13 (rewritten, retitled
-"Decide-log-continue"), version bumped to 0.7. the session brief "Read first"
+"Decide-log-continue"), version bumped to 0.7. The session brief "Read first"
 section, "Repo conventions" (spec authorship no longer exclusively
 web-side), "Working agreement" (both changed bullets rewritten).
 **Status:** standing
